@@ -1,5 +1,5 @@
 ---
-title: "Calculate stability"
+title: "Measure stability from acoustic indices and bird detections"
 author: "Samuel R.P-J. Ross"
 date: '2022-07-08'
 output: html_document
@@ -11,13 +11,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Packages:
 library(nlme)
 library(patchwork)
-#library(fitdistrplus)
-#library(glmmTMB)
-#library(DHARMa)
-#library(MuMIn)
-#library(cluster)
-#library(factoextra)
-#library(dabestr)
 library(here)
 library(tidyverse)
 

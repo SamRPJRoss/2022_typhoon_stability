@@ -11,23 +11,129 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Packages:
 library(nlme)
 library(patchwork)
-library(fitdistrplus)
-library(glmmTMB)
-library(DHARMa)
-library(MuMIn)
-library(cluster)
-library(factoextra)
-library(dabestr)
 library(here)
-library(simpleboot)
-library(scales)
+library(brms)
+library(tidybayes)
+library(cowplot)
+library(ape)
+library(dbplyr)
 library(tidyverse)
 
 # get data
 load(here("Data/Stability_Acoustic_Indices.rda"))
 load(here("Data/Stability_Species_Detections.rda"))
+
+# get site names ordered by land use PC1 for later use in figures
 load(here("Data/all_landuse.rda"))
+Site_order<-Landuse_1000$site_id[order(Landuse_1000$PC1)]
+rm(Landuse_1000)
 ```
+
+This markdown is for building models to test effects of land use and typhoons on acoustic indices and bird species detections. 
+Modeling framework uses Bayesian models to test for effects of typhoons and land use (plus their interaction) on means and variabilities of acoustic indices and bird detections. Also tests land use effect on acoustic index resistance and recovery.
+Can test for spatial autocorrelation of model residuals and fit spatial error terms where needed.
+
+### Acoustic indices
+
+## acoustic index mean states
+
+**NDSI - negative change after typhoon**
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI" & response_variable %in% 'Pre_mean') 
+dat_post<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI" & response_variable %in% 'Post_mean')
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+#names(df)[1] <- names(Landuse_1000)[1]
+#df <- left_join(df, Landuse_1000, by = "site_id")
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse * Typhoon + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
+
+mut_mod<-mod_nonspatial_beta %>%
+  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
+
+# determine whether credible intervals span zero, and store as binary (to show in plot): 
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+}
+rm(temp)
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+
+# plot posterior typhoon effect
+mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F) +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("skyblue","gray80")) +
+  scale_shape_manual(values = c(1,8)) +
+  labs(x = "Posterior distribution (typhoon effect)",
+       y = "Site") + 
+  cowplot::theme_minimal_grid(font_size = 14,
+                              colour = "grey92")
+
+
+
+
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+
+
+
+
+
 
 Here we have run the stability calculations in another R markdown and pulled the results in here. We will run the following analyses, first on three different acoustic indices (NDSI, NDSI_Bio, NDSI_Anthro), then for our species detections:
 
