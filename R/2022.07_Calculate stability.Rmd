@@ -1,0 +1,994 @@
+---
+title: "Calculate stability"
+author: "Samuel R.P-J. Ross"
+date: '2022-07-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Packages:
+library(nlme)
+library(patchwork)
+#library(fitdistrplus)
+#library(glmmTMB)
+#library(DHARMa)
+#library(MuMIn)
+#library(cluster)
+#library(factoextra)
+#library(dabestr)
+library(here)
+library(tidyverse)
+
+## Data:
+load(here("Data/Acoustic_Indices.rda"))
+load(here("Data/2022_Species_Detections.rda"))
+load(here("Data/all_landuse.rda"))
+
+## Functions:
+'%!in%' <- function(x,y)!('%in%'(x,y)) # function for opposite of %in%
+
+typhoon.period<-function(data){
+  
+  data$Period[data$Date < "2018-09-29"]<-"Pre-typhoon"
+  data$Period[data$Date >= "2018-09-29"]<-"Trami"
+  data$Period[data$Date >= "2018-10-01"]<-"Post-Trami"
+  data$Period[data$Date >= "2018-10-04"]<-"Kong-Rey"
+  data$Period[data$Date >= "2018-10-06"]<-"Post-typhoon"
+
+  return(data)
+  
+} # function to get periods from around the typhoon (pre-typhoon etc.)
+```
+
+This markdown contains the code needed to reproduce the analyses from Ross et al. (DATE). In the setup chunk, we loaded the acoustic index data (standardised, and standardised and noise-reduced using a moving average detrend), the bird species data, and the land use predictor data. 
+
+We will measure the stability of acoustic indices and bird detections, but first we'll reproduce Figure S1. 
+
+## Figure S1
+
+This part shows how we calculated our principal component axes included in the analyses of land use and the biplot shows what the axes represent: 
+
+```{r,echo=FALSE}
+
+#library(xfun); install_github("vqv/ggbiplot")
+library(ggbiplot)
+
+# the land use data are proportions that have been arcsine transformed, so we do prcomp() to generate our ordination:
+PCA_out<-prcomp(Landuse_1000[,c(4:10)])
+summary(PCA_out)
+Landuse_transform<-as.data.frame(-PCA_out$x[,1:2]) # select only the first 2 PC axes with high eigenvalues
+
+# visualise results to determine value of K
+fviz_nbclust(Landuse_transform, kmeans, method = 'wss') # K = 3 (or 2)
+fviz_nbclust(Landuse_transform, kmeans, method = 'silhouette') # K = 2
+
+# try k = 3: clusters are not very interpretable
+#k = 3
+#kmean_landuse <- kmeans(Landuse_transform, centers = k, nstart = 50)
+#PCA_out$group<-kmean_landuse$cluster
+#PCA_out$group[PCA_out$group %in% '1']<-'Grass'
+#PCA_out$group[PCA_out$group %in% '2']<-'Forest'
+#PCA_out$group[PCA_out$group %in% '3']<-'Developed'
+#PCA_out$group<-parse_factor(as.character(PCA_out$group))
+#ggbiplot(PCA_out,alpha = 0.25,varname.size = 4,varname.adjust = 1.2,groups = PCA_out$group,ellipse = T) +
+#  theme_light() + 
+#  theme(text = element_text(size = 16), 
+#        axis.text = element_text(colour = "black"),) + 
+#  xlab("Standardised PC1 (81.2% variance explained)") + 
+#  ylab("Standardised PC2 (10.9% variance explained)")
+
+# try k = 2: forest vs developed
+k = 2
+kmean_landuse <- kmeans(Landuse_transform, centers = k, nstart = 50)
+PCA_out$group<-kmean_landuse$cluster
+PCA_out$group[PCA_out$group %in% '1']<-'Forest'
+PCA_out$group[PCA_out$group %in% '2']<-'Developed'
+PCA_out$group<-parse_factor(as.character(PCA_out$group))
+ggbiplot(PCA_out,alpha = 0.25,varname.size = 4,varname.adjust = 1.2,groups = PCA_out$group,ellipse = T) +
+  theme_light() + 
+  theme(text = element_text(size = 16), 
+        axis.text = element_text(colour = "black"),) + 
+  xlab("Standardised PC1 (81.2% variance explained)") + 
+  ylab("Standardised PC2 (10.9% variance explained)")
+
+# get names of sites within each kmeans cluster
+Sites_Forest<-Landuse_1000$site_id[PCA_out$group %in% 'Forest']
+Sites_Developed<-Landuse_1000$site_id[PCA_out$group %in% 'Developed']
+
+rm(kmean_landuse,Landuse_transform)
+```
+
+## Figure S2
+
+We'll be using the 3-day moving average detrended time series of standardised acoustic indices throughout our analyses, so to visualise the justification for this, let's first plot the data when not detrended, and then detrended at 3 different orders (3, 5, and 7 days):
+
+```{r}
+
+Plot_raw<-ggplot(Standardised_AIs[Standardised_AIs$Site_ID %in% 'MANABIFR',], 
+       mapping = aes(x = Date_Time,
+                     y = NDSI_Bio)) +
+  xlab("Date") + 
+  ylab("Standardised biophony (NDSI_Bio)") +
+  ggtitle("NDSI_Bio time series") +
+  theme_classic() + guides(alpha = 'none') +
+  theme(text = element_text(size = 16), 
+  axis.text = element_text(colour = "black"),) + 
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Trami"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Trami"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_line() + 
+  geom_hline(yintercept = mean(Standardised_AIs$NDSI_Bio[Standardised_AIs$Site_ID %in% 'MANABIFR' & Standardised_AIs$Period %in% 'Pre-typhoon'],na.rm = T), lty = 2, col = "red") +
+  scale_x_datetime()
+
+Plot_3d<-ggplot(AIs_ma_3d[AIs_ma_3d$Site_ID %in% 'MANABIFR',], 
+       mapping = aes(x = Date_Time,
+                     y = NDSI_Bio)) +
+  xlab("Date") + 
+  ylab("Standardised biophony (NDSI_Bio)") +
+  ggtitle("NDSI_Bio 3-day moving average series") +
+  theme_classic() + guides(alpha = 'none') +
+  theme(text = element_text(size = 16), 
+  axis.text = element_text(colour = "black"),) + 
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Trami"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Trami"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_line() + 
+  geom_hline(yintercept = mean(AIs_ma_3d$NDSI_Bio[AIs_ma_3d$Site_ID %in% 'MANABIFR' & AIs_ma_3d$Period %in% 'Pre-typhoon'],na.rm = T), lty = 2, col = "red") +
+  scale_x_datetime()
+
+Plot_5d<-ggplot(AIs_ma_5d[AIs_ma_5d$Site_ID %in% 'MANABIFR',], 
+       mapping = aes(x = Date_Time,
+                     y = NDSI_Bio)) +
+  xlab("Date") + 
+  ylab("Standardised biophony (NDSI_Bio)") +
+  ggtitle("NDSI_Bio 5-day moving average series") +
+  theme_classic() + guides(alpha = 'none') +
+  theme(text = element_text(size = 16), 
+  axis.text = element_text(colour = "black"),) + 
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Trami"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Trami"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_line() + 
+  geom_hline(yintercept = mean(AIs_ma_5d$NDSI_Bio[AIs_ma_5d$Site_ID %in% 'MANABIFR' & AIs_ma_5d$Period %in% 'Pre-typhoon'],na.rm = T), lty = 2, col = "red") +
+  scale_x_datetime()
+
+Plot_7d<-ggplot(AIs_ma_7d[AIs_ma_7d$Site_ID %in% 'MANABIFR',], 
+       mapping = aes(x = Date_Time,
+                     y = NDSI_Bio)) +
+  xlab("Date") + 
+  ylab("Standardised biophony (NDSI_Bio)") +
+  ggtitle("NDSI_Bio 7-day moving average series") +
+  theme_classic() + guides(alpha = 'none') +
+  theme(text = element_text(size = 16), 
+  axis.text = element_text(colour = "black"),) + 
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Trami"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Trami"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_rect(mapping = aes(xmin = min(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          xmax = max(as.POSIXct(Date[Period %in% "Kong-Rey"])), 
+                          ymin = 0, 
+                          ymax = 1),
+                          fill = "grey90",
+                          alpha = 0.1) +
+  geom_line() + 
+  geom_hline(yintercept = mean(AIs_ma_7d$NDSI_Bio[AIs_ma_7d$Site_ID %in% 'MANABIFR' & AIs_ma_7d$Period %in% 'Pre-typhoon'],na.rm = T), lty = 2, col = "red") +
+  scale_x_datetime()
+
+(Plot_raw + Plot_3d) / (Plot_5d + Plot_7d)
+
+```
+
+Here we see, rather unsurprisingly, that when we increase the window size of our moving average - that is, when we smooth across more points - we get a less distinctive imprint of the typhoon and a faster recovery to this baseline (red line) for this field size (Manabi no Mori). We also see that the standardised data alone (not detrended) is much too noisy to see the imprint of the typhoon. Together, this justifies our use of the 3-day moving average detrend. 
+
+```{r, include=FALSE}
+
+# remove unnecessary data 
+rm(Standardised_AIs,AIs_ma_5d,AIs_ma_7d,Plot_raw,Plot_3d,Plot_5d,Plot_7d)
+
+```
+
+### Acoustic Indices
+
+```{r}
+
+# Make basic dataframe for response variables
+AI_stability<-data.frame('Site_ID'=rep(unique(AIs_ma_3d$Site_ID),3),
+                         'Index'= rep(c('NDSI','NDSI_Bio','NDSI_Anth'),each=length(unique(AIs_ma_3d$Site_ID))),
+                         'Pre_mean'=NA,'Post_mean'=NA,'Pre_Var'=NA,'Post_Var'=NA,'Resist'=NA,'Recov'=NA)
+
+# Add land-use predictor variables (Lat, Long, and PC axes)
+for (i in 1:length(AI_stability$Site_ID)) {
+  AI_stability$Lat[i]<-Landuse_1000$Lat[Landuse_1000$site_id %in% AI_stability$Site_ID[i]]
+  AI_stability$Long[i]<-Landuse_1000$Long[Landuse_1000$site_id %in% AI_stability$Site_ID[i]]
+  AI_stability$Land_PC1[i]<-Landuse_1000$PC1[Landuse_1000$site_id %in% AI_stability$Site_ID[i]]
+  AI_stability$Land_PC2[i]<-Landuse_1000$PC2[Landuse_1000$site_id %in% AI_stability$Site_ID[i]]
+}
+
+AI_stability$Landuse[AI_stability$Site_ID %in% Sites_Forest]<-'Forest'
+AI_stability$Landuse[AI_stability$Site_ID %in% Sites_Developed]<-'Developed'
+
+```
+
+Will use only 3-day moving average detrended time series (see above).
+
+## pre-typhoon mean state
+
+First, calculate mean of the 30-day pre-typhoon period:
+
+```{r}
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    # calculate baseline of standardised acoustic index time series at each site as mean of pre-typhoon period
+    AI_stability$Pre_mean[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                            AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] &
+                  AIs_ma_3d$Period %in% 'Pre-typhoon',1+j] %>% mean(na.rm = T)
+    
+  }
+}
+
+```
+
+## post-typhoon mean state
+
+Next, calculate mean of the 30-day post-typhoon period:
+
+```{r}
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    # calculate baseline of standardised acoustic index time series at each site as mean of pre-typhoon period
+    AI_stability$Post_mean[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                            AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] &
+                  AIs_ma_3d$Period %in% 'Post-typhoon',1+j] %>% mean(na.rm = T)
+    
+  }
+}
+
+```
+
+## pre-typhoon temporal variability
+
+Calculate temporal variability as coefficient of variation (SD/mean) of 30-day pre-typhoon period. 
+Uses absolute values because negative values in time series can produce unintuitive variability values.
+
+```{r}
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    # calculate temporal variability of standardised acoustic index time series at each site as sd/mean of pre-typhoon period
+    AI_stability$Pre_Var[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                           AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                  AIs_ma_3d$Period %in% 'Pre-typhoon',1+j] %>% abs() %>% sd(na.rm = T)/
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                  AIs_ma_3d$Period %in% 'Pre-typhoon',1+j] %>% abs() %>% mean(na.rm = T)
+    
+  }
+}
+
+```
+
+## post-typhoon temporal variability
+
+Calculate temporal variability as coefficient of variation (SD/mean) of 30-day post-typhoon period. 
+
+```{r}
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    # calculate temporal variability of standardised acoustic index time series at each site as sd/mean of pre-typhoon period
+    AI_stability$Post_Var[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                            AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                  AIs_ma_3d$Period %in% 'Post-typhoon',1+j] %>% abs() %>% sd(na.rm = T)/
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                  AIs_ma_3d$Period %in% 'Post-typhoon',1+j] %>% abs() %>% mean(na.rm = T)
+    
+  }
+}
+
+```
+
+## resistance
+
+Calculate resistance as maximum change from pre-typhoon mean in 2 days immediately following 2nd typhoon. 
+Uses absolute difference, as acoustic indices may increase or decrease following typhoons. 
+
+```{r,warning=FALSE}
+
+# get dates of 2-day period immediately following the 2nd typhoon
+resist_dates<-unique(AIs_ma_3d$Date[AIs_ma_3d$Period %in% "Post-typhoon"])[c(1:2)]
+
+# create dataframe for storing the resistance and recovery dates
+Response_dates<-AI_stability[,c(1:3)]
+Response_dates$resist_date<-NA
+Response_dates$resist_date<-parse_datetime(as.character(Response_dates$resist_date))
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+  # calculate resistance of standardised acoustic index time series at each site as maximum absolute difference from baseline
+  AI_stability$Resist[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                        AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+    AI_stability$Pre_mean[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                            AI_stability$Index %in% unique(AI_stability$Index)[j]]-
+    AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                AIs_ma_3d$Date %in% resist_dates,1+j] %>% # get differences from baseline
+      abs() %>% # absolute differences
+      max(na.rm = T) # maximum of absolute differences
+
+  # identify WHEN resistance value is 
+  resist<-which(AI_stability$Pre_mean[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                                        AI_stability$Index %in% unique(AI_stability$Index)[j]]-
+                  AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                              AIs_ma_3d$Date %in% resist_dates,1+j] %>% # get differences from baseline
+      abs() == AI_stability$Resist[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                                     AI_stability$Index %in% unique(AI_stability$Index)[j]]) # maximum of absolute differences
+    
+  # Saves time of resistance point in a seperate dataframe for later calculating recovery
+   Response_dates$resist_date[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                Response_dates$Index %in% unique(Response_dates$Index)[j]]<-
+     parse_datetime(as.character(AIs_ma_3d$Date_Time[AIs_ma_3d$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                                       AIs_ma_3d$Period %in% "Post-typhoon"][resist]),
+                                locale = locale(tz = "Japan"))
+  }
+} 
+rm(i,j,k,resist,resist_dates)
+
+AI_stability$Resist[which(AI_stability$Resist %in% Inf)]<-NA # change Inf values to NAs
+```
+
+## recovery time
+
+Calculate recovery time by checking whether each value after typhoons falls within range of expected values based on pre-typhoon period. If values consistently fall within this range, system is considered recovered.
+
+First, get the pre-disturbance state including the 95% confidence interval:
+
+```{r}
+Baseline<-AI_stability[,c(-4:-13)]
+Baseline$lower_95<-NA
+Baseline$upper_95<-NA
+
+for (i in 1:length(unique(Baseline$Site_ID))) {
+  for (j in 1:3) {
+    
+    # calculate lower 95% confidence interval for the baseline of standardised acoustic index time series at each site
+    Baseline$lower_95[Baseline$Site_ID %in% unique(Baseline$Site_ID)[i] & 
+                            Baseline$Index %in% unique(Baseline$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(Baseline$Site_ID)[i] &
+                  AIs_ma_3d$Period %in% 'Pre-typhoon',1+j] %>% quantile(probs = 0.05,na.rm = T)
+    
+    # calculate upper 95% confidence interval for the baseline of standardised acoustic index time series at each site
+    Baseline$upper_95[Baseline$Site_ID %in% unique(Baseline$Site_ID)[i] & 
+                            Baseline$Index %in% unique(Baseline$Index)[j]]<-
+      AIs_ma_3d[AIs_ma_3d$Site_ID %in% unique(Baseline$Site_ID)[i] &
+                  AIs_ma_3d$Period %in% 'Pre-typhoon',1+j] %>% quantile(probs = 0.95,na.rm = T)
+  }
+}
+rm(i,j)
+```
+
+Next, ask does each post-typhoon acoustic index value fall within the range of baseline values?
+
+```{r}
+Recov_ts<-AIs_ma_3d[AIs_ma_3d$Period %in% "Post-typhoon",] # get post-typhoon period for calculating recovery etc.
+
+# add columns for binary variable, is the value within the baseline? (yes/no)
+Recov_ts<-Recov_ts %>% cbind('recov_NDSI' = NA,'recov_NDSI_Bio' = NA,'recov_NDSI_Anth' = NA)
+
+# is each acoustic index within the baseline range for the standardised values?
+for (i in 1:nrow(Recov_ts)) {
+  for (j in 1:3) {
+    
+    if(Baseline$lower_95[Baseline$Site_ID %in% Recov_ts$Site_ID[i] & 
+                      Baseline$Index %in% unique(Baseline$Index)[j]] <= Recov_ts[i,1+j] & 
+       Recov_ts[i,1+j] <= Baseline$upper_95[Baseline$Site_ID %in% Recov_ts$Site_ID[i] & 
+                                         Baseline$Index %in% unique(Baseline$Index)[j]] & 
+       Recov_ts[i,1+j] %!in% NA){
+      
+      Recov_ts[i,11+j] <- 1 # if value is >= the lower 95% CI and <= the upper 95% CI, assign value of 1
+    } else{
+      Recov_ts[i,11+j] <- 0 # otherwise, assign value of 0
+    }
+  }
+}
+rm(i,j)
+```
+
+Calculate recovery time as difference in hours between recovery point and resistance point. 
+Asks when (after this point) is the first run of values falling within the 95% CI pre-typhoon state?
+Uses 24-hr window size (recovery = 48th conscutive datapoint within 95% CIs), but can also compare with 12-hr and 48-hr windows.
+
+```{r}
+
+# set window size (how many datapoints must be within the baseline range?)
+recov_window_size<-48 # 24 hrs
+
+# add column to dataframe for storing the recovery dates
+Response_dates$recov_date<-NA
+Response_dates$recov_date<-parse_datetime(as.character(Response_dates$recov_date))
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    # get resistance point date
+    resist_date<-Response_dates$resist_date[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                              Response_dates$Index %in% unique(Response_dates$Index)[j]]
+   
+    # use rle() function to get sizes of runs of repeated values (we're looking for repeated 1s since above we coded 1 = within pre-disturbance state).
+    runs<-rle(Recov_ts[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                         Recov_ts$Date_Time > resist_date,11+j] == 1) # True-False statement (is value within baseline? T/F)
+    myruns <- which(runs$values == TRUE & 
+                      runs$lengths >= recov_window_size)[1] # which cases are first to reach the recovery threshold
+    runs.lengths.cumsum <- cumsum(runs$lengths) # cumulative sum of run lengths
+
+    # find start position of first run with sufficient number of cases (window size) within specified range
+    newindex <- ifelse(myruns>1, myruns-1, 0)
+    starts <- runs.lengths.cumsum[newindex] + 1
+    if (0 %in% newindex) starts = c(1,starts) # starts = beginning of this run, so start + our window size = point at which recovery achieved
+    
+    # get date_time of the recovery point
+    recov_date<-Recov_ts$Date_Time[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                                     Recov_ts$Date_Time > resist_date][starts[1]+recov_window_size]
+  
+    # store recovery point for later use in calculating resilience
+    Response_dates$recov_date[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                Response_dates$Index %in% unique(Response_dates$Index)[j]]<-recov_date
+    
+  # calculate recovery time as the difference (in hours) between the resistance point and the recovery point
+    if(length(resist_date) > 0){
+     AI_stability$Recov[AI_stability$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                               AI_stability$Index %in% unique(AI_stability$Index)[j]]<-
+       difftime(recov_date,resist_date,units = "hour")
+    }
+    rm(runs,myruns,runs.lengths.cumsum,newindex,starts,recov_date,resist_date)
+  
+  }
+}
+rm(recov_window_size,i,j)
+```
+
+Are results affected by recovery window size?
+
+```{r}
+# create comparison output matrix
+Recov_windows<-AI_stability[,c(-3:-5,-7:-8)]
+colnames(Recov_windows)[3]<-"Recov_24hr"
+Recov_windows<-cbind(Recov_windows,'Recov_12hr'=NA,'Recov_48hr'=NA)
+
+# add columns to dataframe for storing the recovery dates
+Response_dates$recov_date_12h<-NA
+Response_dates$recov_date_12h<-parse_datetime(as.character(Response_dates$recov_date_12h))
+Response_dates$recov_date_48h<-NA
+Response_dates$recov_date_48h<-parse_datetime(as.character(Response_dates$recov_date_48h))
+
+# set size of window to class as recovery (i.e. how many sequential points must be within the reference state +/- error to class as recovery?) 
+recov_window_size<-24 # 12 hrs
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    ## standardised acoustic index time series
+   # get resistance point date
+   resist_date<-Response_dates$resist_date[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                             Response_dates$Index %in% unique(Response_dates$Index)[j]]
+
+    # get runs of sequential 1s in a True-False statement for all time points AFTER the resistance value
+    runs<-rle(Recov_ts[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                         Recov_ts$Date_Time > resist_date,11+j] == 1)
+    myruns <- which(runs$values == TRUE & 
+                      runs$lengths >= recov_window_size)[1] # which cases are the first to reach the recovery threshold
+    runs.lengths.cumsum <- cumsum(runs$lengths) # cumulative sum of run lengths
+
+    # find the start position of the first run with a sufficient number of cases (based on chosen window size) within the specified range
+    newindex <- ifelse(myruns>1, myruns-1, 0)
+    starts <- runs.lengths.cumsum[newindex] + 1
+    if (0 %in% newindex) starts = c(1,starts) # starts = beginning of this run, so start + our window size will give us the point at which recovery has been achieved
+    
+    # get date_time of the recovery point
+    recov_date<-Recov_ts$Date_Time[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                                     Recov_ts$Date_Time > resist_date][starts[1]+recov_window_size]
+  
+    # store recovery point for later use in calculating resilience
+    Response_dates$recov_date_12h[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                    Response_dates$Index %in% unique(Response_dates$Index)[j]]<-recov_date
+    
+  # finally calculate recovery time as the difference (in hours) between the resistance point and the recovery point
+    if(length(resist_date) > 0){
+     Recov_windows$Recov_12hr[Recov_windows$Site_ID %in% unique(Recov_windows$Site_ID)[i] & 
+                                Recov_windows$Index %in% unique(Recov_windows$Index)[j]]<-
+       difftime(recov_date,resist_date,units = "hour")
+    }
+    rm(runs,myruns,runs.lengths.cumsum,newindex,starts,recov_date,resist_date)
+  }
+}
+
+# set size of window to class as recovery (i.e. how many sequential points must be within the reference state +/- error to class as recovery?) 
+recov_window_size<-96 # 48 hrs
+
+for (i in 1:length(unique(AI_stability$Site_ID))) {
+  for (j in 1:3) {
+    
+    ## standardised acoustic index time series
+  # get resistance point date
+   resist_date<-Response_dates$resist_date[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                             Response_dates$Index %in% unique(Response_dates$Index)[j]]
+
+    # get runs of sequential 1s in a True-False statement for all time points AFTER the resistance value
+    runs<-rle(Recov_ts[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                         Recov_ts$Date_Time > resist_date,11+j] == 1)
+    myruns <- which(runs$values == TRUE & 
+                      runs$lengths >= recov_window_size)[1] # which cases are the first to reach the recovery threshold
+    runs.lengths.cumsum <- cumsum(runs$lengths) # cumulative sum of run lengths
+
+    # find the start position of the first run with a sufficient number of cases (based on chosen window size) within the specified range
+    newindex <- ifelse(myruns>1, myruns-1, 0)
+    starts <- runs.lengths.cumsum[newindex] + 1
+    if (0 %in% newindex) starts = c(1,starts) # starts = beginning of this run, so start + our window size will give us the point at which recovery has been achieved
+    
+    # get date_time of the recovery point
+    recov_date<-Recov_ts$Date_Time[Recov_ts$Site_ID %in% unique(AI_stability$Site_ID)[i] & 
+                                     Recov_ts$Date_Time > resist_date][starts[1]+recov_window_size]
+  
+     # store recovery point for later use in calculating resilience
+    Response_dates$recov_date_48h[Response_dates$Site_ID %in% unique(Response_dates$Site_ID)[i] & 
+                                    Response_dates$Index %in% unique(Response_dates$Index)[j]]<-recov_date
+    
+  # finally calculate recovery time as the difference (in hours) between the resistance point and the recovery point
+    if(length(resist_date) > 0){
+     Recov_windows$Recov_48hr[Recov_windows$Site_ID %in% unique(Recov_windows$Site_ID)[i] & 
+                                Recov_windows$Index %in% unique(Recov_windows$Index)[j]]<-
+       difftime(recov_date,resist_date,units = "hour")
+    }
+    rm(runs,myruns,runs.lengths.cumsum,newindex,starts,recov_date,resist_date)
+  
+  }
+}
+
+# plot relationships between recovery window sizes
+Recov_windows<-Recov_windows %>% pivot_longer(cols = c('Recov_48hr','Recov_12hr'),
+                                              names_to = "Recovery_window",
+                                              values_to = "Stability")
+Recov_windows$Recovery_window[Recov_windows$Recovery_window %in% 'Recov_48hr']<-48
+Recov_windows$Recovery_window[Recov_windows$Recovery_window %in% 'Recov_12hr']<-12
+Recov_windows$Index<-Recov_windows$Index %>% as.character() %>% parse_factor(levels = c('NDSI','NDSI_Bio','NDSI_Anth'))
+Recov_windows$Recovery_window<-Recov_windows$Recovery_window %>% as.character() %>% parse_factor(levels = c('12','48'))
+Recov_windows %>% ggplot() +
+            xlab("Recovery time (24 hr window)") + 
+            ylab("Recovery time (12 or 48 hr window") +
+            theme_classic() + 
+            theme(text = element_text(size = 16), 
+                  axis.text = element_text(colour = "black"),) + 
+            geom_point(aes(x = Recov_24hr,y = Stability),size=2) + 
+            geom_smooth(aes(x = Recov_24hr,y = Stability),method = "lm",se = F,col = 'red') + 
+  facet_grid(Recovery_window ~ Index,scales = "free")
+
+rm(Baseline,i,j,recov_window_size,Response_dates,Recov_ts,Recov_windows)
+```
+
+## spatial variability
+
+Next, measure spatial variability as coefficient of variation among sites per time point (time-dependent spatial variability).
+
+```{r}
+AI_Spatial_Var<-data.frame("Date_Time"=rep(unique(AIs_ma_3d$Date_Time),3),
+                           "Index"=rep(unique(AI_stability$Index),each=length(unique(AIs_ma_3d$Date_Time))),
+                           "Spatial_Var"=NA,"Forest_Var"=NA,"Developed_Var"=NA) # make output dataframe
+
+AI_Spatial_Var<-AI_Spatial_Var %>% typhoon.period() # get typhoon periods
+```
+
+Calculate spatial variability as coefficient of variation (SD/mean) at each time point across all sites.
+
+```{r}
+for (i in 1:length(unique(AI_Spatial_Var$Date_Time))) { # for each time point
+  for (j in 1:3) { # and each acoustic index
+   
+    # get spatial CV across all 24 sites
+    AI_Spatial_Var$Spatial_Var[AI_Spatial_Var$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                               AI_Spatial_Var$Index %in% unique(AI_Spatial_Var$Index)[j]]<-
+      (AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i],1+j] %>% sd(na.rm = T)/
+         AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i],1+j] %>% mean(na.rm = T))
+  }
+}
+rm(i,j)
+```
+
+Calculate spatial variability among land use classes individually (forest vs developed).
+
+```{r}
+for (i in 1:length(unique(AI_Spatial_Var$Date_Time))) { # for each time point
+  for (j in 1:3) { # and each acoustic index
+   
+    # get spatial CV of the forest sites
+    AI_Spatial_Var$Forest_Var[AI_Spatial_Var$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                                AI_Spatial_Var$Index %in% unique(AI_Spatial_Var$Index)[j]]<-
+      (AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                   AIs_ma_3d$Site_ID %in% Sites_Forest,1+j] %>% sd(na.rm = T)/
+         AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                     AIs_ma_3d$Site_ID %in% Sites_Forest,1+j] %>% mean(na.rm = T))
+     
+    # get spatial CV of the developed sites
+    AI_Spatial_Var$Developed_Var[AI_Spatial_Var$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                                   AI_Spatial_Var$Index %in% unique(AI_Spatial_Var$Index)[j]]<-
+      (AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                   AIs_ma_3d$Site_ID %in% Sites_Developed,1+j] %>% sd(na.rm = T)/
+         AIs_ma_3d[AIs_ma_3d$Date_Time %in% unique(AI_Spatial_Var$Date_Time)[i] & 
+                     AIs_ma_3d$Site_ID %in% Sites_Developed,1+j] %>% mean(na.rm = T))
+  }
+}
+rm(i,j)
+```
+
+## Standardise and tidy data
+
+Convert unintuitive stability dimensions to be 0-1 where 1 = highest stability. Do this separately for each acoustic index. 
+Does not change pre- and post-typhoon means, and spatial variability, as these are already intuitive data formats.
+
+```{r}
+Standard_stability<-AI_stability
+for (i in 1:3) { # for each acoustic index
+  
+  # convert temporal variability to 1 - standardised temp var
+  Standard_stability$Pre_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]<-1-
+    (Standard_stability$Pre_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]/
+       max(Standard_stability$Pre_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]],na.rm = T))
+  
+    # convert temporal variability to 1 - standardised temp var
+  Standard_stability$Post_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]<-1-
+    (Standard_stability$Post_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]/
+       max(Standard_stability$Post_Var[Standard_stability$Index %in% unique(Standard_stability$Index)[i]],na.rm = T))
+  
+  # convert resistance to 1 - standardised maximum absolute deviation from baseline
+  Standard_stability$Resist[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]<-1-
+    (abs(Standard_stability$Resist[Standard_stability$Index %in% unique(Standard_stability$Index)[i]])/
+       max(abs(Standard_stability$Resist[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]),na.rm = T))
+  
+  # convert recovery time to 1 - standardised recovery time
+  Standard_stability$Recov[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]<-1-
+    (Standard_stability$Recov[Standard_stability$Index %in% unique(Standard_stability$Index)[i]]/
+       max(Standard_stability$Recov[Standard_stability$Index %in% unique(Standard_stability$Index)[i]],na.rm = T))
+}
+rm(i)
+```
+
+Convert to tidy data format.
+
+```{r}
+wide.stability_AI<-Standard_stability %>% tibble() # convert to wide format tibble
+tidy.stability_AI<-wide.stability_AI %>% gather(key = response_variable,
+                                                value = Stability,
+                                                na.rm = F,-Site_ID,-Index,-Landuse,-Lat,-Long,-Land_PC1,-Land_PC2) # convert to long format (melted)
+
+wide.spatial_AI<-AI_Spatial_Var %>% tibble() # convert to wide format tibble
+wide.spatial_AI <- wide.spatial_AI[complete.cases(wide.spatial_AI),] # remove NA values
+colnames(wide.spatial_AI)[3]<-"Total_var"
+tidy.spatial_AI<-wide.spatial_AI %>% gather(key = response_group,
+                                            value = Stability,
+                                            na.rm = F,-Date_Time,-Index,-Period) # convert to long format (melted)
+#save(list = c('wide.stability_AI','tidy.stability_AI','wide.spatial_AI','tidy.spatial_AI'),file = 'Stability_Acoustic_Indices.rda')
+```
+
+
+
+
+
+
+
+### Species vocalisations
+
+The above analyses are all for our acoustic index time series. We also have data on individual species detections for a few species of birds. First, let's process the data into a useful format. The data come in as individual detections, so we'll generate an empty time series of dates and then sum the number of detections for each species at each site on each date to get our data for analysis. 
+
+First, generate dataframe: 
+
+```{r}
+
+# remove data from 2017 (error) - run twice to remove 2 2017 dates
+#Species_detections<-Species_detections[Species_detections$Date %!in% min(unique(Species_detections$Date)),]
+#Species_detections<-Species_detections[Species_detections$Date %!in% min(unique(Species_detections$Date)),]
+
+
+# worst code I've ever written. Can neaten this up in final version once we know how many species, sites, dates etc we have
+Daily_species<-data.frame('Site_ID'=rep(unique(Species_detections$Site_ID),each=length(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days"))*length(unique(Species_detections$Species_ID))),
+                          'Species_ID'=rep(rep(unique(Species_detections$Species_ID),each=length(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days")), length(unique(Species_detections$Site_ID)))),
+                          'Date' = rep(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days"),length(unique(Species_detections$Site_ID))*length(unique(Species_detections$Species_ID))),
+                          'Detect.Num' = NA, 'Cutoff' = NA, 'Period' = NA)
+
+Daily_species<-Daily_species %>% typhoon.period() # get typhoon periods
+
+Daily_species<-rbind(Daily_species,Daily_species,Daily_species)
+Daily_species$Cutoff<-c(0.5,0.75,0.9) %>% rep(each = Daily_species %>% nrow()/3) # get cutoff values
+
+```
+
+Now for each site at each confidence cutoff threshold (0.5,0.75,0.9), we'll count the number of calls of each species per day and store it in the dataframe:
+
+```{r}
+
+for (i in 1:length(Daily_species$Site_ID)) {
+  
+  Daily_species$Detect.Num[i]<-Species_detections$Filename[Species_detections$Site_ID %in% Daily_species$Site_ID[i] & 
+                                                           Species_detections$Species_ID %in% Daily_species$Species_ID[i] & 
+                                                           Species_detections$Date %in% Daily_species$Date[i] & 
+                                                           Species_detections$Cluster_dist <= Daily_species$Cutoff[i]] %>% length()
+}
+
+```
+
+Now let's make an output dataframe for the stability results:
+
+```{r}
+
+# Make output dataframe
+Detection_stability<-unique(Daily_species[,c(1,2,5)])
+Detection_stability<-cbind(Detection_stability,"Baseline"=NA,"Temp_Var"=NA,"Ext_Chng"=NA,"n_pre"=NA,"n_post"=NA,"Mean_post"=NA,"Wilcox_W"=NA,"Chng_hi"=NA,"Chng_lo"=NA,"p_val"=NA,"p_sig"=1,"Lat"=NA,"Long"=NA,"kmeans"=NA)
+
+# add land use variables
+for (i in 1:length(Detection_stability$Site_ID)) {
+  Detection_stability[i,c(15:17)]<-AI_stability[AI_stability$Site_ID %in% Detection_stability$Site_ID[i],c(9:10,22)][1,]
+}
+
+```
+
+## Species detections Baseline
+
+As with the Acoustic indices, we'll calculate the baseline as the mean of the pre-typhoon period at each site for each species (and detection cutoff threshold):
+
+```{r}
+
+for (i in 1:length(Detection_stability$Site_ID)) {
+  
+  # calculate baseline of species detection time series at each site as mean of pre-typhoon period
+    Detection_stability$Baseline[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                                Daily_species$Period %in% 'Pre-typhoon'] %>% mean(na.rm = T)
+  
+}
+
+```
+
+So now we have our mean values of the pre-disturbance period (that is, our baseline value). 
+
+## Calculate species detection temporal variability
+
+As above, we'll calculate the temporal variability of the pre-disturbance period as the coefficient of variation: 
+
+```{r}
+
+for (i in 1:length(Detection_stability$Site_ID)) {
+  
+        # calculate temporal variability of species detection time series at each site as sd/mean of pre-typhoon period
+    Detection_stability$Temp_Var[i]<-
+      Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                               Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                               Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                               Daily_species$Period %in% 'Pre-typhoon'] %>% sd(na.rm = T)/
+      Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                               Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                               Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                               Daily_species$Period %in% 'Pre-typhoon'] %>% mean(na.rm = T)
+  
+}
+
+```
+
+**Convert to 1 - Temporal Variability**
+
+```{r}
+
+for (i in 1:length(unique(Detection_stability$Species_ID))) { 
+
+Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]<-1-
+    (Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]/
+       max(Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]],na.rm = T))
+
+}
+
+```
+
+
+# Remove missing cases
+
+NB: Before we calculate the extent of change below, we need to remove all cases in our output dataframe where we don't have data. They're easy to spot because the Baseline is Zero and the Temporal Variability is NaN:
+
+```{r}
+
+# remove cases where there are no detections before the typhoon
+Detection_stability<-Detection_stability[Detection_stability$Baseline %!in% 0,]
+
+```
+
+## Calculate species detection extent of change
+
+Our final dimension of stability is extent of change as above. We'll again use a Wilcoxon Signed rank test to make before versus after typhoon comparisons:
+
+```{r}
+
+## calculate extent of change for species detection time series
+for (i in 1:length(Detection_stability$Site_ID)) {
+  
+      # separate the pre- and post-typhoon data
+      Data_pre<-data.frame("Detect" = Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                                Daily_species$Period %in% 'Pre-typhoon'])
+      Data_post<-data.frame("Detect" = Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                                Daily_species$Period %in% 'Post-typhoon'])
+  
+      # get means and sample sizes of pre- and post-typhoon data
+      # NB: pre-disturbance mean is just the same as baseline
+      Detection_stability$Mean_post[i]<-Data_post$Detect %>% mean(na.rm = T)
+      Detection_stability$n_pre[i]<-Data_pre$Detect[Data_pre$Detect %!in% NA] %>% length()
+      Detection_stability$n_post[i]<-Data_post$Detect[Data_post$Detect %!in% NA] %>% length()
+
+      # for cases where sample sizes >5 for both the pre- and post-typhoon period
+      if(Data_pre$Detect[Data_pre$Detect %!in% NA] %>% length() > 5 & Data_post$Detect[Data_post$Detect %!in% NA] %>% length() > 5){
+        
+        # perform Wilcoxon signed rank test to determine whether pre- and post-typhoon data differ significantly
+        Wilcox.out<-wilcox.test(x = Data_post$Detect, 
+                                y = Data_pre$Detect, 
+                                na.rm=TRUE, 
+                                paired=FALSE, # unpaired accounts for uneven sample sizes
+                                exact=FALSE, 
+                                conf.int=TRUE, 
+                                digits.rank = 7)
+
+        # get extent of change values and confidence intervals
+        Detection_stability$Ext_Chng[i]<-Wilcox.out$estimate
+        Detection_stability$Chng_hi[i]<-Wilcox.out$conf.int %>% max(na.rm = T)
+        Detection_stability$Chng_lo[i]<-Wilcox.out$conf.int %>% min(na.rm = T)
+        
+        # get Wilcoxon test statistic and p-value
+        Detection_stability$Wilcox_W[i]<-Wilcox.out$statistic
+        Detection_stability$p_val[i]<-Wilcox.out$p.value
+        
+      }
+}
+
+# finally mark nonsignificant [0.05 confidence level] results with a 0 (leaving significant results as a 1)
+Detection_stability$p_sig[Detection_stability$p_val > 0.05]<-0
+
+# replace NaN values with NAs
+Detection_stability$Mean_post[which(is.nan(Detection_stability$Mean_post))]<-NA
+ 
+```
+
+With this, we now have all the data we need to test our hypotheses. Next we'll move on to the statistical analyses.
+
+## Spatial variability
+
+Here we'll measure spatial variability as the coefficient of variation among sites at a given time (that is, time-dependent spatial variability). Then we can check whether spatial variability is different before versus after the typhoons, and whether sites at the opposite extremes of our land use gradients differ in their spatial variability. 
+
+First we'll make the output matrix: 
+
+```{r}
+
+# cut off at 0.5 detection fidelity
+Daily_species2<-Daily_species[Daily_species$Cutoff %in% 0.5,]
+
+# make output matrix
+Sp_Spatial_Var<-data.frame("Date"=rep(unique(Daily_species2$Date),3),
+                           "Species"=rep(unique(Daily_species2$Species_ID),each=length(unique(Daily_species2$Date))),
+                           "Spatial_Var"=NA,"Forest_Var"=NA,"Developed_Var"=NA)
+
+Sp_Spatial_Var<-Sp_Spatial_Var %>% typhoon.period() # get typhoon periods
+
+# parse_Date
+Sp_Spatial_Var$Date <- as.character(Sp_Spatial_Var$Date) %>% parse_date()
+
+```
+
+Next, calculate spatial variability as the coefficient of variation on each date across all sites, following Donohue _et al._ (2013 _Ecol. Lett._): 
+
+```{r}
+
+for (i in 1:length(unique(Sp_Spatial_Var$Date))) { # for each time point
+  for (j in 1:3) { # and each species
+   
+    # get spatial CV across all available sites
+    Sp_Spatial_Var$Spatial_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                               Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
+      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% sd(na.rm = T)/
+         Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% mean(na.rm = T))
+     
+  }
+}
+
+```
+
+Now we have a measure of spatial variability across all sites, but with this data we can't get at any potential differences among sites of different land use. So now we'll make the same calculations for our 2 kmeans landuse clusters from above (forest vs developed sites):
+
+```{r}
+
+for (i in 1:length(unique(Sp_Spatial_Var$Date))) { # for each time point
+  for (j in 1:3) { # and each species
+   
+    # get spatial CV of the most forested sites (kmeans cluster 1)
+    Sp_Spatial_Var$Forest_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
+      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                   Daily_species2$Site_ID %in% Sites_Forest]) %>% sd(na.rm = T)/
+      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                   Daily_species2$Site_ID %in% Sites_Forest]) %>% mean(na.rm = T)
+      
+        # get spatial CV of the most developed sites (kmeans cluster 2)
+    Sp_Spatial_Var$Developed_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
+      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                   Daily_species2$Site_ID %in% Sites_Developed]) %>% sd(na.rm = T)/
+      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                   Daily_species2$Site_ID %in% Sites_Developed]) %>% mean(na.rm = T)
+  }
+}
+
+# replace NaN with NA
+Sp_Spatial_Var[,c(3:5)] <- Sp_Spatial_Var[,c(3:5)] %>% mutate_all(~ifelse(is.nan(.),NA,.))
+
+```
+
+So now we have our spatial variability results for all the sites at each time point, and for the kmeans clusters subsets of landuse.
+
+**Convert to tidy dataset**
+
+First we need to convert the current dataframes we'll be using into a tidy dataset with rows representing observations, and columns the associated variables or metadata: 
+
+```{r}
+
+wide.stability_bird<-tibble::tibble(Detection_stability[,c(1:6,9,14,17)]) # convert to wide format tible
+tidy.stability_bird<-wide.stability_bird %>% gather(key = Stability_dimension,value = Stability,na.rm = F,-Site_ID,-Species_ID,-Cutoff,-kmeans,-p_sig) # convert to long format (melted)
+
+wide.spatial_bird<-tibble::tibble(Sp_Spatial_Var) # convert to wide format tibble
+tidy.spatial_bird<-wide.spatial_bird %>% gather(key = Stability_dimension,value = Stability,na.rm = F,-Date,-Species,-Period) # convert to long format (melted)
+tidy.spatial_bird <- tidy.spatial_bird[complete.cases(tidy.spatial_bird),]
+
+#save(list = c('wide.stability_bird','tidy.stability_bird','wide.spatial_bird','tidy.spatial_bird'),file = 'Stability_Species_Detections.rda')
+
+```
