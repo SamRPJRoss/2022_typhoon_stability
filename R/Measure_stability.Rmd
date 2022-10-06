@@ -706,289 +706,247 @@ tidy.spatial_AI<-wide.spatial_AI %>% gather(key = response_group,
                                             value = Stability,
                                             na.rm = F,-Date_Time,-Index,-Period) # convert to long format (melted)
 #save(list = c('wide.stability_AI','tidy.stability_AI','wide.spatial_AI','tidy.spatial_AI'),file = 'Stability_Acoustic_Indices.rda')
+rm(Standard_stability,tidy.spatial_AI,tidy.stability_AI,wide.spatial_AI,wide.stability_AI,AI_stability,AI_Spatial_Var,AIs_ma_3d,Baseline)
 ```
-
-
-
-
-
-
 
 ### Species vocalisations
 
-The above analyses are all for our acoustic index time series. We also have data on individual species detections for a few species of birds. First, let's process the data into a useful format. The data come in as individual detections, so we'll generate an empty time series of dates and then sum the number of detections for each species at each site on each date to get our data for analysis. 
-
-First, generate dataframe: 
+Now calculate stability of bird species detections.
+Raw data are individual detections, so generate time series of summed detections per species, per date, per site. 
 
 ```{r}
-
-# remove data from 2017 (error) - run twice to remove 2 2017 dates
-#Species_detections<-Species_detections[Species_detections$Date %!in% min(unique(Species_detections$Date)),]
-#Species_detections<-Species_detections[Species_detections$Date %!in% min(unique(Species_detections$Date)),]
-
-
-# worst code I've ever written. Can neaten this up in final version once we know how many species, sites, dates etc we have
-Daily_species<-data.frame('Site_ID'=rep(unique(Species_detections$Site_ID),each=length(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days"))*length(unique(Species_detections$Species_ID))),
-                          'Species_ID'=rep(rep(unique(Species_detections$Species_ID),each=length(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days")), length(unique(Species_detections$Site_ID)))),
-                          'Date' = rep(seq(as.Date(min(unique(Species_detections$Date))),as.Date(max(unique(Species_detections$Date))),"days"),length(unique(Species_detections$Site_ID))*length(unique(Species_detections$Species_ID))),
+# generate dataframe
+Daily_species<-data.frame('Site_ID'=rep(unique(Species_detections$Site_ID), # repeat sites
+                                        each=67*3), # 67 days x 3 species
+                          'Species_ID'=rep(rep(unique(Species_detections$Species_ID),each=67),22),
+                          'Date' = rep(seq(as.Date(min(unique(Species_detections$Date))),
+                                           as.Date(max(unique(Species_detections$Date))),"days"),
+                                       22*3), # 22 sites x 3 species
                           'Detect.Num' = NA, 'Cutoff' = NA, 'Period' = NA)
 
 Daily_species<-Daily_species %>% typhoon.period() # get typhoon periods
 
 Daily_species<-rbind(Daily_species,Daily_species,Daily_species)
 Daily_species$Cutoff<-c(0.5,0.75,0.9) %>% rep(each = Daily_species %>% nrow()/3) # get cutoff values
-
 ```
 
-Now for each site at each confidence cutoff threshold (0.5,0.75,0.9), we'll count the number of calls of each species per day and store it in the dataframe:
+For each confidence threshold (0.5,0.75,0.9), count number of vocalisations per day per species.
 
 ```{r}
-
 for (i in 1:length(Daily_species$Site_ID)) {
-  
   Daily_species$Detect.Num[i]<-Species_detections$Filename[Species_detections$Site_ID %in% Daily_species$Site_ID[i] & 
                                                            Species_detections$Species_ID %in% Daily_species$Species_ID[i] & 
                                                            Species_detections$Date %in% Daily_species$Date[i] & 
                                                            Species_detections$Cluster_dist <= Daily_species$Cutoff[i]] %>% length()
 }
-
+rm(i)
 ```
 
-Now let's make an output dataframe for the stability results:
+Make dataframe.
 
 ```{r}
-
 # Make output dataframe
 Detection_stability<-unique(Daily_species[,c(1,2,5)])
-Detection_stability<-cbind(Detection_stability,"Baseline"=NA,"Temp_Var"=NA,"Ext_Chng"=NA,"n_pre"=NA,"n_post"=NA,"Mean_post"=NA,"Wilcox_W"=NA,"Chng_hi"=NA,"Chng_lo"=NA,"p_val"=NA,"p_sig"=1,"Lat"=NA,"Long"=NA,"kmeans"=NA)
+Detection_stability<-cbind(Detection_stability,
+                           'Pre_mean'=NA,'Post_mean'=NA,'Pre_Var'=NA,'Post_Var'=NA)
 
-# add land use variables
+# Add land-use predictor variables (Lat, Long, and PC axes)
 for (i in 1:length(Detection_stability$Site_ID)) {
-  Detection_stability[i,c(15:17)]<-AI_stability[AI_stability$Site_ID %in% Detection_stability$Site_ID[i],c(9:10,22)][1,]
+  Detection_stability$Lat[i]<-Landuse_1000$Lat[Landuse_1000$site_id %in% Detection_stability$Site_ID[i]]
+  Detection_stability$Long[i]<-Landuse_1000$Long[Landuse_1000$site_id %in% Detection_stability$Site_ID[i]]
+  Detection_stability$Land_PC1[i]<-Landuse_1000$PC1[Landuse_1000$site_id %in% Detection_stability$Site_ID[i]]
+  Detection_stability$Land_PC2[i]<-Landuse_1000$PC2[Landuse_1000$site_id %in% Detection_stability$Site_ID[i]]
 }
+
+Detection_stability$Landuse[Detection_stability$Site_ID %in% Sites_Forest]<-'Forest'
+Detection_stability$Landuse[Detection_stability$Site_ID %in% Sites_Developed]<-'Developed'
 
 ```
 
-## Species detections Baseline
+## pre-typhoon mean state
 
-As with the Acoustic indices, we'll calculate the baseline as the mean of the pre-typhoon period at each site for each species (and detection cutoff threshold):
+Calculate mean species detections from 30-day pre-typhoon period.
 
 ```{r}
-
 for (i in 1:length(Detection_stability$Site_ID)) {
-  
+
   # calculate baseline of species detection time series at each site as mean of pre-typhoon period
-    Detection_stability$Baseline[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+    Detection_stability$Pre_mean[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
                                                                 Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
-                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & # selects appropriate confidence value
                                                                 Daily_species$Period %in% 'Pre-typhoon'] %>% mean(na.rm = T)
   
 }
-
+rm(i)
 ```
 
-So now we have our mean values of the pre-disturbance period (that is, our baseline value). 
+## post-typhoon mean state
 
-## Calculate species detection temporal variability
-
-As above, we'll calculate the temporal variability of the pre-disturbance period as the coefficient of variation: 
+Calculate mean species detections from 30-day post-typhoon period.
 
 ```{r}
-
 for (i in 1:length(Detection_stability$Site_ID)) {
-  
-        # calculate temporal variability of species detection time series at each site as sd/mean of pre-typhoon period
-    Detection_stability$Temp_Var[i]<-
-      Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
-                               Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
-                               Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
-                               Daily_species$Period %in% 'Pre-typhoon'] %>% sd(na.rm = T)/
-      Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
-                               Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
-                               Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
-                               Daily_species$Period %in% 'Pre-typhoon'] %>% mean(na.rm = T)
+
+  # calculate baseline of species detection time series at each site as mean of pre-typhoon period
+    Detection_stability$Post_mean[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] &
+                                                                Daily_species$Period %in% 'Post-typhoon'] %>% mean(na.rm = T)
   
 }
-
+rm(i)
 ```
 
-**Convert to 1 - Temporal Variability**
+## pre-typhoon temporal variability
+
+Calculate temporal variability of species detections from 30-day pre-typhoon period as CV (SD/mean).
 
 ```{r}
-
-for (i in 1:length(unique(Detection_stability$Species_ID))) { 
-
-Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]<-1-
-    (Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]/
-       max(Detection_stability$Temp_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]],na.rm = T))
-
-}
-
-```
-
-
-# Remove missing cases
-
-NB: Before we calculate the extent of change below, we need to remove all cases in our output dataframe where we don't have data. They're easy to spot because the Baseline is Zero and the Temporal Variability is NaN:
-
-```{r}
-
-# remove cases where there are no detections before the typhoon
-Detection_stability<-Detection_stability[Detection_stability$Baseline %!in% 0,]
-
-```
-
-## Calculate species detection extent of change
-
-Our final dimension of stability is extent of change as above. We'll again use a Wilcoxon Signed rank test to make before versus after typhoon comparisons:
-
-```{r}
-
-## calculate extent of change for species detection time series
 for (i in 1:length(Detection_stability$Site_ID)) {
-  
-      # separate the pre- and post-typhoon data
-      Data_pre<-data.frame("Detect" = Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
-                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
-                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
-                                                                Daily_species$Period %in% 'Pre-typhoon'])
-      Data_post<-data.frame("Detect" = Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
-                                                                Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
-                                                                Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
-                                                                Daily_species$Period %in% 'Post-typhoon'])
-  
-      # get means and sample sizes of pre- and post-typhoon data
-      # NB: pre-disturbance mean is just the same as baseline
-      Detection_stability$Mean_post[i]<-Data_post$Detect %>% mean(na.rm = T)
-      Detection_stability$n_pre[i]<-Data_pre$Detect[Data_pre$Detect %!in% NA] %>% length()
-      Detection_stability$n_post[i]<-Data_post$Detect[Data_post$Detect %!in% NA] %>% length()
 
-      # for cases where sample sizes >5 for both the pre- and post-typhoon period
-      if(Data_pre$Detect[Data_pre$Detect %!in% NA] %>% length() > 5 & Data_post$Detect[Data_post$Detect %!in% NA] %>% length() > 5){
-        
-        # perform Wilcoxon signed rank test to determine whether pre- and post-typhoon data differ significantly
-        Wilcox.out<-wilcox.test(x = Data_post$Detect, 
-                                y = Data_pre$Detect, 
-                                na.rm=TRUE, 
-                                paired=FALSE, # unpaired accounts for uneven sample sizes
-                                exact=FALSE, 
-                                conf.int=TRUE, 
-                                digits.rank = 7)
-
-        # get extent of change values and confidence intervals
-        Detection_stability$Ext_Chng[i]<-Wilcox.out$estimate
-        Detection_stability$Chng_hi[i]<-Wilcox.out$conf.int %>% max(na.rm = T)
-        Detection_stability$Chng_lo[i]<-Wilcox.out$conf.int %>% min(na.rm = T)
-        
-        # get Wilcoxon test statistic and p-value
-        Detection_stability$Wilcox_W[i]<-Wilcox.out$statistic
-        Detection_stability$p_val[i]<-Wilcox.out$p.value
-        
-      }
+  # calculate baseline of species detection time series at each site as mean of pre-typhoon period
+    Detection_stability$Pre_Var[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                             Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                             Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                             Daily_species$Period %in% 'Pre-typhoon'] %>% sd(na.rm = T)/
+                                    Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                             Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                             Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                             Daily_species$Period %in% 'Pre-typhoon'] %>% mean(na.rm = T)
 }
-
-# finally mark nonsignificant [0.05 confidence level] results with a 0 (leaving significant results as a 1)
-Detection_stability$p_sig[Detection_stability$p_val > 0.05]<-0
-
-# replace NaN values with NAs
-Detection_stability$Mean_post[which(is.nan(Detection_stability$Mean_post))]<-NA
- 
+rm(i)
 ```
 
-With this, we now have all the data we need to test our hypotheses. Next we'll move on to the statistical analyses.
+## post-typhoon temporal variability
 
-## Spatial variability
-
-Here we'll measure spatial variability as the coefficient of variation among sites at a given time (that is, time-dependent spatial variability). Then we can check whether spatial variability is different before versus after the typhoons, and whether sites at the opposite extremes of our land use gradients differ in their spatial variability. 
-
-First we'll make the output matrix: 
+Calculate temporal variability of species detections from 30-day post-typhoon period as CV (SD/mean).
 
 ```{r}
+for (i in 1:length(Detection_stability$Site_ID)) {
 
-# cut off at 0.5 detection fidelity
-Daily_species2<-Daily_species[Daily_species$Cutoff %in% 0.5,]
+  # calculate baseline of species detection time series at each site as mean of pre-typhoon period
+    Detection_stability$Post_Var[i]<-Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                             Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                             Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                             Daily_species$Period %in% 'Post-typhoon'] %>% sd(na.rm = T)/
+                                    Daily_species$Detect.Num[Daily_species$Site_ID %in% Detection_stability$Site_ID[i] &
+                                                             Daily_species$Species_ID %in% Detection_stability$Species_ID[i] &
+                                                             Daily_species$Cutoff %in% Detection_stability$Cutoff[i] & 
+                                                             Daily_species$Period %in% 'Post-typhoon'] %>% mean(na.rm = T)
+}
+rm(i)
+```
+
+## spatial variability
+
+Next, measure spatial variability as coefficient of variation among sites per time point (time-dependent spatial variability).
+Uses only 0.5 confidence threshold.
+
+```{r}
+Daily_species2<-Daily_species[Daily_species$Cutoff %in% 0.5,] # cut off at 0.5 detection fidelity
 
 # make output matrix
 Sp_Spatial_Var<-data.frame("Date"=rep(unique(Daily_species2$Date),3),
                            "Species"=rep(unique(Daily_species2$Species_ID),each=length(unique(Daily_species2$Date))),
-                           "Spatial_Var"=NA,"Forest_Var"=NA,"Developed_Var"=NA)
+                           "Total_Var"=NA,"Forest_Var"=NA,"Developed_Var"=NA)
 
 Sp_Spatial_Var<-Sp_Spatial_Var %>% typhoon.period() # get typhoon periods
-
-# parse_Date
-Sp_Spatial_Var$Date <- as.character(Sp_Spatial_Var$Date) %>% parse_date()
-
+Sp_Spatial_Var$Date <- as.character(Sp_Spatial_Var$Date) %>% parse_date() # parse_Date
 ```
 
-Next, calculate spatial variability as the coefficient of variation on each date across all sites, following Donohue _et al._ (2013 _Ecol. Lett._): 
+Calculate spatial variability as coefficient of variation (SD/mean) at each time point across all sites.
 
 ```{r}
-
 for (i in 1:length(unique(Sp_Spatial_Var$Date))) { # for each time point
   for (j in 1:3) { # and each species
    
     # get spatial CV across all available sites
-    Sp_Spatial_Var$Spatial_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+    Sp_Spatial_Var$Total_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
                                Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
-      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% sd(na.rm = T)/
-         Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% mean(na.rm = T))
-     
+                            (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
+                                                       Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% sd(na.rm = T)/
+                             Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] &
+                                                       Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j]] %>% mean(na.rm = T))
   }
 }
-
+rm(i,j)
 ```
 
-Now we have a measure of spatial variability across all sites, but with this data we can't get at any potential differences among sites of different land use. So now we'll make the same calculations for our 2 kmeans landuse clusters from above (forest vs developed sites):
+Calculate spatial variability among land use classes individually (forest vs developed).
+
 
 ```{r}
-
 for (i in 1:length(unique(Sp_Spatial_Var$Date))) { # for each time point
   for (j in 1:3) { # and each species
    
     # get spatial CV of the most forested sites (kmeans cluster 1)
     Sp_Spatial_Var$Forest_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
                                 Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
-      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
-                                   Daily_species2$Site_ID %in% Sites_Forest]) %>% sd(na.rm = T)/
-      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
-                                   Daily_species2$Site_ID %in% Sites_Forest]) %>% mean(na.rm = T)
+                              (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                                         Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                                         Daily_species2$Site_ID %in% Sites_Forest]) %>% sd(na.rm = T)/
+                              (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                                         Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                                         Daily_species2$Site_ID %in% Sites_Forest]) %>% mean(na.rm = T)
       
-        # get spatial CV of the most developed sites (kmeans cluster 2)
+    # get spatial CV of the most developed sites (kmeans cluster 2)
     Sp_Spatial_Var$Developed_Var[Sp_Spatial_Var$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
-                                Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
-      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
-                                   Daily_species2$Site_ID %in% Sites_Developed]) %>% sd(na.rm = T)/
-      (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
-                                   Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
-                                   Daily_species2$Site_ID %in% Sites_Developed]) %>% mean(na.rm = T)
+                                  Sp_Spatial_Var$Species %in% unique(Sp_Spatial_Var$Species)[j]]<-
+                                (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                                           Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                                           Daily_species2$Site_ID %in% Sites_Developed]) %>% sd(na.rm = T)/
+                                (Daily_species2$Detect.Num[Daily_species2$Date %in% unique(Sp_Spatial_Var$Date)[i] & 
+                                                           Daily_species2$Species_ID %in% unique(Sp_Spatial_Var$Species)[j] & 
+                                                           Daily_species2$Site_ID %in% Sites_Developed]) %>% mean(na.rm = T)
   }
 }
-
-# replace NaN with NA
-Sp_Spatial_Var[,c(3:5)] <- Sp_Spatial_Var[,c(3:5)] %>% mutate_all(~ifelse(is.nan(.),NA,.))
-
+Sp_Spatial_Var[,c(3:5)] <- Sp_Spatial_Var[,c(3:5)] %>% mutate_all(~ifelse(is.nan(.),NA,.)) # replace NaN with NA
+rm(i,j)
 ```
 
-So now we have our spatial variability results for all the sites at each time point, and for the kmeans clusters subsets of landuse.
+## Standardise and tidy data
 
-**Convert to tidy dataset**
+Convert to 1 minus variability, as with acoustic indices.
 
-First we need to convert the current dataframes we'll be using into a tidy dataset with rows representing observations, and columns the associated variables or metadata: 
+```{r}
+for (i in 1:length(unique(Detection_stability$Species_ID))) { 
+
+Detection_stability$Pre_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]<-1-
+    (Detection_stability$Pre_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]/
+       max(Detection_stability$Pre_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]],na.rm = T))
+
+Detection_stability$Post_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]<-1-
+    (Detection_stability$Post_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]]/
+       max(Detection_stability$Post_Var[Detection_stability$Species_ID %in% unique(Detection_stability$Species_ID)[i]],na.rm = T))
+}
+rm(i)
+```
+
+Remove cases where no species were detected before or after the typhoons.
 
 ```{r}
 
-wide.stability_bird<-tibble::tibble(Detection_stability[,c(1:6,9,14,17)]) # convert to wide format tible
-tidy.stability_bird<-wide.stability_bird %>% gather(key = Stability_dimension,value = Stability,na.rm = F,-Site_ID,-Species_ID,-Cutoff,-kmeans,-p_sig) # convert to long format (melted)
-
-wide.spatial_bird<-tibble::tibble(Sp_Spatial_Var) # convert to wide format tibble
-tidy.spatial_bird<-wide.spatial_bird %>% gather(key = Stability_dimension,value = Stability,na.rm = F,-Date,-Species,-Period) # convert to long format (melted)
-tidy.spatial_bird <- tidy.spatial_bird[complete.cases(tidy.spatial_bird),]
-
-#save(list = c('wide.stability_bird','tidy.stability_bird','wide.spatial_bird','tidy.spatial_bird'),file = 'Stability_Species_Detections.rda')
+# remove cases where there are no detections before and after the typhoon
+Detection_stability<-Detection_stability[Detection_stability$Pre_mean %!in% 0 & Detection_stability$Post_mean %!in% 0,]
 
 ```
+
+Convert to tidy data format.
+
+```{r}
+wide.stability_bird<-Detection_stability %>% tibble() # convert to wide format tibble
+tidy.stability_bird<-wide.stability_bird %>% gather(key = response_variable,
+                                                value = Stability,
+                                                na.rm = F,-Site_ID,-Species_ID,-Cutoff,-Landuse,-Lat,-Long,-Land_PC1,-Land_PC2) # convert to long format (melted)
+
+wide.spatial_bird<-Sp_Spatial_Var %>% tibble() # convert to wide format tibble
+wide.spatial_bird <- wide.spatial_bird[wide.spatial_bird$Total_Var %!in% NA,] # remove NA values
+tidy.spatial_bird<-wide.spatial_bird %>% gather(key = response_group,
+                                            value = Stability,
+                                            na.rm = F,-Date,-Species,-Period) # convert to long format (melted)
+
+#save(list = c('wide.stability_bird','tidy.stability_bird','wide.spatial_bird','tidy.spatial_bird'),file = 'Stability_Species_Detections.rda')
+rm(Daily_species,Daily_species2,Detection_stability,Sp_Spatial_Var,Species_detections,tidy.spatial_bird,wide.spatial_bird,tidy.stability_bird,wide.stability_bird)
+```
+
+END.
