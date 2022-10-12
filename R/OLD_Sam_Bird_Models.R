@@ -50,13 +50,6 @@ mut_mod<-mod_nonspatial_beta %>%
   spread_draws(b_TyphoonPost, r_site_id[site_id,]) %>%
   mutate(site_mean = b_TyphoonPost + r_site_id)
 
-# determine whether credible intervals span zero, and store as binary (to show in plot): 
-
-mut_mod$site_mean[mut_mod$site_id %in% mut_mod$site_id[1]]
-
-
-
-
 mut_mod %>%
   ggplot(aes(y = site_id %>% as.character %>% parse_factor(levels = Site_order), 
              x = site_mean, 

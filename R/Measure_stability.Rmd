@@ -10,9 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Packages:
 library(nlme)
+library(factoextra)
 library(patchwork)
 library(here)
-library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(readr)
+library(purrr)
+library(stringr)
+library(forcats)
 
 ## Data:
 load(here("Data/Acoustic_Indices.rda"))
@@ -691,6 +699,7 @@ wide.stability_AI<-Standard_stability %>% tibble() # convert to wide format tibb
 tidy.stability_AI<-wide.stability_AI %>% gather(key = response_variable,
                                                 value = Stability,
                                                 na.rm = F,-Site_ID,-Index,-Landuse,-Lat,-Long,-Land_PC1,-Land_PC2) # convert to long format (melted)
+tidy.stability_AI$Stability[which(tidy.stability_AI$Stability == 0)]<-0.000000001
 
 wide.spatial_AI<-AI_Spatial_Var %>% tibble() # convert to wide format tibble
 wide.spatial_AI <- wide.spatial_AI[complete.cases(wide.spatial_AI),] # remove NA values
@@ -699,7 +708,7 @@ tidy.spatial_AI<-wide.spatial_AI %>% gather(key = response_group,
                                             value = Stability,
                                             na.rm = F,-Date_Time,-Index,-Period) # convert to long format (melted)
 #save(list = c('wide.stability_AI','tidy.stability_AI','wide.spatial_AI','tidy.spatial_AI'),file = 'Stability_Acoustic_Indices.rda')
-rm(Standard_stability,tidy.spatial_AI,tidy.stability_AI,wide.spatial_AI,wide.stability_AI,AI_stability,AI_Spatial_Var,AIs_ma_3d,Baseline)
+#rm(Standard_stability,tidy.spatial_AI,tidy.stability_AI,wide.spatial_AI,wide.stability_AI,AI_stability,AI_Spatial_Var,AIs_ma_3d,Baseline)
 ```
 
 ### Species vocalisations
@@ -931,6 +940,7 @@ wide.stability_bird<-Detection_stability %>% tibble() # convert to wide format t
 tidy.stability_bird<-wide.stability_bird %>% gather(key = response_variable,
                                                 value = Stability,
                                                 na.rm = F,-Site_ID,-Species_ID,-Cutoff,-Landuse,-Lat,-Long,-Land_PC1,-Land_PC2) # convert to long format (melted)
+tidy.stability_bird$Stability[which(tidy.stability_bird$Stability == 0)]<-0.000000001
 
 wide.spatial_bird<-Sp_Spatial_Var %>% tibble() # convert to wide format tibble
 wide.spatial_bird <- wide.spatial_bird[wide.spatial_bird$Total_Var %!in% NA,] # remove NA values
@@ -939,7 +949,7 @@ tidy.spatial_bird<-wide.spatial_bird %>% gather(key = response_group,
                                             na.rm = F,-Date,-Species,-Period) # convert to long format (melted)
 
 #save(list = c('wide.stability_bird','tidy.stability_bird','wide.spatial_bird','tidy.spatial_bird'),file = 'Stability_Species_Detections.rda')
-rm(Daily_species,Daily_species2,Detection_stability,Sp_Spatial_Var,Species_detections,tidy.spatial_bird,wide.spatial_bird,tidy.stability_bird,wide.stability_bird)
+#rm(Daily_species,Daily_species2,Detection_stability,Sp_Spatial_Var,Species_detections,tidy.spatial_bird,wide.spatial_bird,tidy.stability_bird,wide.stability_bird)
 ```
 
 END.
