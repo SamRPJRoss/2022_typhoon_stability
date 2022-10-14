@@ -132,7 +132,7 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ```
 
-**NDSI_Bio - no effect of typhoon**
+**NDSI_Bio - no effect of typhoon or land use**
 
 ```{r}
 
@@ -277,7 +277,7 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ## acoustic index temporal variability
 
-**NDSI - no effect of typhoon**
+**NDSI - no effect of typhoon or land use**
 
 ```{r}
 
@@ -299,9 +299,10 @@ df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest
 df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
 #df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
 
+# fit random intercept and slope model because random slope model didn't converge well.
 mod_nonspatial_beta <- 
   brm(data = df, family = Beta(),
-      Stability ~ 1 + Landuse * Typhoon + (1|Site_ID),
+      Stability ~ 1 + Landuse * Typhoon + (1+Landuse*Typhoon|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666)
 mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
@@ -314,7 +315,6 @@ mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
 mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
 
 ## no effects ##
-
 ## Parameter fits and stats 
 
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
@@ -332,17 +332,7 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ```
 
-
-check what to do if black line doesn't fall in middle of samples!!
-
-
-
-
-
-
-
-
-**NDSI_Bio - no effect of typhoon**
+**NDSI_Bio - no effect of typhoon or land use**
 
 ```{r}
 
@@ -364,9 +354,10 @@ df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest
 df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
 #df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
 
+# fit random intercept and slope model because random slope model didn't converge well.
 mod_nonspatial_beta <- 
   brm(data = df, family = Beta(),
-      Stability ~ 1 + Landuse * Typhoon + (1|Site_ID),
+      Stability ~ 1 + Landuse * Typhoon + (1+Landuse*Typhoon|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666)
 mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
@@ -396,7 +387,7 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ```
 
-**NDSI_Anthro - positive change after typhoon**
+**NDSI_Anthro - no effect of typhoon or land use**
 
 ```{r}
 
@@ -418,9 +409,337 @@ df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest
 df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
 #df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
 
+# fit random intercept and slope model because random slope model didn't converge well.
 mod_nonspatial_beta <- 
   brm(data = df, family = Beta(),
-      Stability ~ 1 + Landuse * Typhoon + (1|Site_ID),
+      Stability ~ 1 + Landuse * Typhoon + (1+Landuse*Typhoon|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+## acoustic index resistance
+
+**NDSI - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI" & response_variable %in% 'Resist') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+**NDSI_Bio - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI_Bio" & response_variable %in% 'Resist') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+**NDSI_Anthro - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI_Anth" & response_variable %in% 'Resist') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+## acoustic index recovery time
+
+**NDSI - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI" & response_variable %in% 'Recov') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+**NDSI_Bio - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI_Bio" & response_variable %in% 'Recov') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+**NDSI_Anthro - no effect of land use**
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.stability_AI %>%
+  filter(Index %in% "NDSI_Anth" & response_variable %in% 'Recov') 
+df<-df[complete.cases(df),]
+
+# change levels for model
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$site_id<-df$site_id %>% parse_character() %>% parse_factor(levels = c(df$site_id[order(df$PC1)]))
+
+# fit random intercept and slope model because random slope model didn't converge well.
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Landuse + (1+Landuse|Site_ID),
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## no effects ##
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+## acoustic index spatial variability
+
+**NDSI - post-typhoon increase**
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & Period %in% 'Pre-typhoon' & response_group %in% 'Total_var') 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & Period %in% 'Post-typhoon' & response_group %in% 'Total_var')
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon,
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666)
 mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
@@ -434,9 +753,15 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## typhoon has an effect ##
 
+
+
+
+
+
+
 mut_mod<-mod_nonspatial_beta %>%
-  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
-  mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
+  spread_draws(b_TyphoonPost) %>%
+  mutate(site_mean = b_TyphoonPost) # get posterior distribution data for plotting
 
 # determine whether credible intervals span zero, and store as binary (to show in plot): 
 mut_mod$sig<-0
@@ -485,9 +810,12 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ```
 
-AI RESISTANCE
+NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow? does it matter?
 
-AI RECOVERY
+Without random effect, need to find another way to display the posterior. The current mcmc_plot isn't really that nice... may need to be a bit more manual.
+
+
+
 
 AI SPATIAL VAR
 
@@ -500,857 +828,6 @@ BIRDS SPATIAL VAR
 
 
 
-
-
-
-
-
-Here we have run the stability calculations in another R markdown and pulled the results in here. We will run the following analyses, first on three different acoustic indices (NDSI, NDSI_Bio, NDSI_Anthro), then for our species detections:
-
-*NDSI* / *NDSI_Bio* / *NDSI_Anthro*
--Time period: Baseline vs post-typhoon (X)
--Baseline vs Landuse (X)
--Post-typhoon vs Landuse (X)
--Temporal Stability vs Landuse (X)
--Resistance vs Landuse (X)
--Recovery Speed vs Landuse (X)
--Resilience vs Landuse (X)
--Extent of Change vs Landuse (X)
--Spatial Var vs time period (X)
--Spatial Var vs Landuse (X)
--Spatial Var vs time period x Landuse (X)
-
-*Species Detections*
--Baseline vs Landuse (X)
--Post-typhoon vs Landuse (X)
--Temporal Stability vs Landuse (X)
--Extent of Change vs Landuse (X)
--Baseline vs Species (X)
--Post-typhoon vs Species (X)
--Temporal Stability vs Species (X)
--Extent of Change vs Species (X)
--Spatial Var vs time period (X)
--Spatial Var vs Landuse (X)
--Spatial Var vs time period x Landuse (X)
-
-We'll analyse the data using a bootstrapping approach to compare means in a way that better accounts for non-normality etc. We have the landuse groups and other variables to split our datasets by, so we can bootstrap the means 10,000 times to get a distribution of means for each group. Then we'll use 95% confidence intervals to ask whether the groups differ significantly; if the groups have non-overlapping confidence intervals, then the group means differ significantly. We'll achieve this using the one.boot() function in the _simpleboot_ package.
-
-We'll visualise both the raw data and the 95% confidence intervals of the bootstrapped means to show our results. 
-
-We'll begin with the acoustic indices:
-
-### Acoustic Indices
-
-## Time period
-
-```{r}
-# subset dataframe
-dat_pre<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Baseline') 
-dat_post<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Mean_post')
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-
-# bootstrap group means & order results
-boot_pre<-dat_pre$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_pre<-boot_pre$t %>% sort()
-boot_post<-dat_post$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_post<-boot_post$t %>% sort()
-
-# combine data
-dat_sim<-tibble('Pre-typhoon' = boot_pre[c(501:9500)], # choose only 95% CIs
-                'Post-typhoon' = boot_post[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Bootstrap")
-dat_raw<-tibble('Pre-typhoon' = dat_pre$Stability,'Post-typhoon' = dat_post$Stability) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Stability")
-
-# convert to factor
-dat_raw$Period<-dat_raw$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-dat_sim$Period<-dat_sim$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-
-# Analysis
-dat_sim %>% 
-  filter(Period == 'Pre-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Period == 'Post-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Period",y = "Mean Normalised Difference Soundscape Index") + 
-  geom_point(mapping = aes(x = Period, y=Stability,
-                           shape = Period),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Period, y=Stability,
-                             fill = Period),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Period),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_a<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_a
-```
-
-No effect on NDSI.
-
-```{r}
-# subset dataframe
-dat_pre<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI_Bio" & Stability_dimension %in% 'Baseline') 
-dat_post<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI_Bio" & Stability_dimension %in% 'Mean_post')
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-
-# bootstrap group means & order results
-boot_pre<-dat_pre$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_pre<-boot_pre$t %>% sort()
-boot_post<-dat_post$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_post<-boot_post$t %>% sort()
-
-# combine data
-dat_sim<-tibble('Pre-typhoon' = boot_pre[c(501:9500)], # choose only 95% CIs
-                'Post-typhoon' = boot_post[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Bootstrap")
-dat_raw<-tibble('Pre-typhoon' = dat_pre$Stability,'Post-typhoon' = dat_post$Stability) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Stability")
-
-# convert to factor
-dat_raw$Period<-dat_raw$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-dat_sim$Period<-dat_sim$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-
-# Analysis
-dat_sim %>% 
-  filter(Period == 'Pre-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Period == 'Post-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Period",y = "Mean Biophony") + 
-  geom_point(mapping = aes(x = Period, y=Stability,
-                           shape = Period),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Period, y=Stability,
-                             fill = Period),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Period),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_b<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-#rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_b
-```
-
-No effect on biophony
-
-```{r}
-# subset dataframe
-dat_pre<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI_Anth" & Stability_dimension %in% 'Baseline') 
-dat_post<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI_Anth" & Stability_dimension %in% 'Mean_post')
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-
-# bootstrap group means & order results
-boot_pre<-dat_pre$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_pre<-boot_pre$t %>% sort()
-boot_post<-dat_post$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_post<-boot_post$t %>% sort()
-
-# combine data
-dat_sim<-tibble('Pre-typhoon' = boot_pre[c(501:9500)], # choose only 95% CIs
-                'Post-typhoon' = boot_post[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Bootstrap")
-dat_raw<-tibble('Pre-typhoon' = dat_pre$Stability,'Post-typhoon' = dat_post$Stability) %>%  
-  pivot_longer(cols = c('Pre-typhoon','Post-typhoon'),names_to = "Period",values_to = "Stability")
-
-# convert to factor
-dat_raw$Period<-dat_raw$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-dat_sim$Period<-dat_sim$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-
-# Analysis
-dat_sim %>% 
-  filter(Period == 'Pre-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Period == 'Post-typhoon') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Period",y = "Mean Anthropophony") + 
-  geom_point(mapping = aes(x = Period, y=Stability,
-                           shape = Period),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Period, y=Stability,
-                             fill = Period),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Period),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#00B2EE','#EE6AA7'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_c<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-#rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_c
-```
-
-Significant post-typhoon increase in anthropophony across sites.
-
-# Multipanel figure
-
-```{r}
-Panel_a / Panel_b / Panel_c
-rm(Panel_a,Panel_b,Panel_c)
-```
-
-
-
-## NDSI
-
-# Baseline vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Baseline' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Baseline' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Pre-typhoon baseline") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_a<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_a
-```
-
-No difference.
-
-# Post-typhoon vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Mean_post' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Mean_post' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Post-typhoon index value") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_b<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_b
-```
-
-No difference.
-
-# Temporal Stability vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Temp_Var' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Temp_Var' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "1 - Temporal Variability") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity",alpha = 0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_c<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_c
-```
-
-No difference.
-
-# Resistance vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Resist' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Resist' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Resistance") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_d<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_d
-```
-
-No difference.
-
-# Recovery vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Recov_time' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Recov_time' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Recovery Speed") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_e<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_e
-```
-
-No difference.
-
-# Resilience vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Resil' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Resil' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Resilience") + 
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Landuse),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_f<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_f
-```
-
-No difference.
-
-# Extent of Change vs Landuse
-
-```{r}
-# subset dataframe
-dat_f<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Ext_Chng' & kmeans %in% 'Forest') 
-dat_d<-tidy.stability_AI %>%
-  filter(Index %in% "NDSI" & Stability_dimension %in% 'Ext_Chng' & kmeans %in% 'Developed')
-dat_f<-dat_f[complete.cases(dat_f),]
-dat_d<-dat_d[complete.cases(dat_d),]
-
-# bootstrap group means & order results
-boot_f<-dat_f$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_f<-boot_f$t %>% sort()
-boot_d<-dat_d$Stability %>% 
-  one.boot(FUN = 'mean',R = 10000,student = F)
-boot_d<-boot_d$t %>% sort()
-
-# combine data
-dat_sim<-tibble(Forest = boot_f[c(501:9500)], # choose only 95% CIs
-                Developed = boot_d[c(501:9500)]) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Bootstrap")
-dat_raw<-tibble(Developed = dat_d$Stability,Forest = c(dat_f$Stability,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Stability")
-dat_sig<-tibble(Developed = dat_d$p_sig,Forest = c(dat_f$p_sig,NA,NA,NA,NA)) %>%  
-  pivot_longer(cols = c('Forest','Developed'),names_to = "Landuse",values_to = "Sig")
-dat_raw<-dat_raw %>% add_column(Sig = dat_sig$Sig); rm(dat_sig)
-
-# convert to factor
-dat_raw$Landuse<-dat_raw$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_sim$Landuse<-dat_sim$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-dat_raw$Sig<-dat_raw$Sig %>% as.character() %>% parse_factor(levels = c('0','1'),include_na = F)
-
-# Analysis
-dat_sim %>% 
-  filter(Landuse == 'Forest') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-dat_sim %>% 
-  filter(Landuse == 'Developed') %>%
-  summarize(Low = min(Bootstrap),
-            High = max(Bootstrap))
-
-# Graph
-plot_raw<-dat_raw %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = "Landuse",y = "Extent of Change") + 
-  geom_hline(yintercept = 0,lty = 2,alpha=0.5) +
-  geom_point(mapping = aes(x = Landuse, y=Stability,
-                           shape = Sig),
-                     position = position_jitter(width = 0.35),
-                     size = 2,
-                     show.legend = FALSE) + 
-  geom_boxplot(mapping = aes(x = Landuse, y=Stability,
-                             fill = Landuse),
-                       alpha = 0.6) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_shape_manual(values = c(2,8)) +
-  ylim(c(dat_raw$Stability %>% min(na.rm = T),
-         dat_raw$Stability %>% max(na.rm = T))) +
-  theme(legend.position = "none")
-
-plot_sim<-dat_sim %>% 
-  ggplot() + 
-  theme_classic(base_size = 14) + 
-  labs(x = element_blank(),y = "95% C.I. of mean bootstrap") + 
-  geom_hline(yintercept = 0,lty = 2,alpha=0.5) +
-  geom_histogram(aes(y=Bootstrap,
-                 fill = Landuse),bins = 250,
-                 position="identity", alpha=0.5) +
-  scale_color_manual(values = c('#008B8B','#696969'),aesthetics = c('colour','fill')) +
-  scale_y_continuous(position = "right",
-                     limits = c(dat_raw$Stability %>% min(na.rm = T),
-                                dat_raw$Stability %>% max(na.rm = T))) + 
-  scale_x_continuous(breaks = breaks_pretty(n = 2)) +
-  theme(legend.position = "none")
-
-Panel_g<-(plot_raw + plot_sim) + plot_layout(ncol = 2, widths = c(3,1))
-rm(plot_raw,plot_sim,boot_d,boot_f,dat_d,dat_f,dat_raw,dat_sim)
-Panel_g
-```
-
-No difference.
-
-# Multipanel figure
-
-```{r}
-(Panel_a | Panel_b) / (Panel_c | Panel_d) / (Panel_e | Panel_g) #/ (Panel_f | plot_spacer())
-rm(Panel_a,Panel_b,Panel_c,Panel_d,Panel_e,Panel_f,Panel_g)
-```
 
 # Spatial Variability vs time period
 
