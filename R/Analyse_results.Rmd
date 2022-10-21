@@ -719,7 +719,7 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ## acoustic index spatial variability
 
-**NDSI - post-typhoon increase**
+**NDSI - typhoon x landuse interaction**
 
 ```{r}
 
@@ -753,45 +753,59 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## typhoon has an effect ##
 
+## Parameter fits and stats 
 
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
 
+```
 
+NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow?
 
+Issues with model diagnostics (doesn't look a great fit) - random time intercept didn't help but don't fix the issue (caused nonconvergence). Different families seem to help (Beta maybe not best here?)
 
+Same but for forest vs developed: 
 
-mut_mod<-mod_nonspatial_beta %>%
-  spread_draws(b_TyphoonPost) %>%
-  mutate(site_mean = b_TyphoonPost) # get posterior distribution data for plotting
+```{r}
 
-# determine whether credible intervals span zero, and store as binary (to show in plot): 
-mut_mod$sig<-0
-for (i in 1:length(unique(mut_mod$Site_ID))) {
-  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
-    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
-    sign() %>% # get sign of those intervals
-    duplicated() # are the signs identical (no = zero-spanning)
-  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
-    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
-  }
-}
-rm(temp)
-mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & Period %in% 'Pre-typhoon' & response_group %in% c('Developed_Var','Forest_Var')) 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & Period %in% 'Post-typhoon' & response_group %in% c('Developed_Var','Forest_Var'))
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
 
-# plot posterior typhoon effect
-mut_mod %>%
-  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
-             x = site_mean, 
-             fill = stat(x) > 0,
-             shape = sig)) + 
-  stat_halfeye(show.legend = F,slab_type = "pdf") +
-  geom_vline(xintercept = 0, 
-             linetype = "dashed") +
-  scale_fill_manual(values = c("gray80","skyblue")) +
-  scale_shape_manual(values = c(21,8)) +
-  labs(x = "Posterior draws (typhoon effect)",
-       y = "Site") + 
-  cowplot::theme_minimal_grid(font_size = 14,
-                              colour = "grey92")
+# change format of landuse information
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon * Landuse,
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
 
 ## Parameter fits and stats 
 
@@ -801,23 +815,361 @@ bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # the black line should run through the center of the blue lines
 pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
 
-## Spatial Autocorrelation test
-bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
-d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
-d_mat_inv <- 1/d_mat
-d_mat_inv[which(d_mat_inv == Inf)] <- 0
-Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+```
+Plot time series of results showing land use x typhoon effects:
+
+```{r}
+
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI")
+df$response_group[df$response_group %in% 'Total_var']<-'All'
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+df$response_group<-df$response_group %>% parse_character() %>% parse_factor(levels = c('All','Forest','Developed'))
+
+plot1<-df %>% ggplot(aes(x = Date_Time,
+                  y = Stability,
+                  col = response_group)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  geom_line(show.legend = F) + 
+  labs(x = "Time",
+       y = "NDSI Spatial variability") + 
+  theme_cowplot(12)
+
+df2<-df %>% 
+  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
+  group_by(response_group,Period) %>% 
+  summarise(Med=median(Stability),
+            Low=quantile(Stability,probs = 0.05),
+            High=quantile(Stability,probs = 0.95))
+df2$Period<-df2$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+
+
+plot2<-df2 %>% ggplot(aes(x = response_group,
+                  y = Med,
+                  ymin = Low,
+                  ymax = High,
+                  col = response_group,
+                  shape = Period)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_pointrange(position = position_jitterdodge(),
+                  fatten = 5,
+                  show.legend = F) + 
+  labs(x = "Land use subset",
+       y = element_blank()) + 
+  theme_cowplot(12)
+
+plot1 + plot2 + plot_layout(widths = c(3,1))
+```
+
+For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
+
+**NDSI_Bio - typhoon x landuse interaction**
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio" & Period %in% 'Pre-typhoon' & response_group %in% 'Total_var') 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio" & Period %in% 'Post-typhoon' & response_group %in% 'Total_var')
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon,
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
+
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
 
 ```
 
-NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow? does it matter?
+NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow?
 
-Without random effect, need to find another way to display the posterior. The current mcmc_plot isn't really that nice... may need to be a bit more manual.
+Issues with model diagnostics (doesn't look a great fit) - random time intercept didn't help but don't fix the issue (caused nonconvergence). Different families seem to help (Beta maybe not best here?)
+
+Same but for forest vs developed: 
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio" & Period %in% 'Pre-typhoon' & response_group %in% c('Developed_Var','Forest_Var')) 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio" & Period %in% 'Post-typhoon' & response_group %in% c('Developed_Var','Forest_Var'))
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+
+# change format of landuse information
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon * Landuse,
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
+
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+```
+Plot time series of results showing land use x typhoon effects:
+
+```{r}
+
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio")
+df$response_group[df$response_group %in% 'Total_var']<-'All'
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+df$response_group<-df$response_group %>% parse_character() %>% parse_factor(levels = c('All','Forest','Developed'))
+
+plot1<-df %>% ggplot(aes(x = Date_Time,
+                  y = Stability,
+                  col = response_group)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  geom_line(show.legend = F) + 
+  labs(x = "Time",
+       y = "Biophony Spatial variability") + 
+  theme_cowplot(12)
+
+df2<-df %>% 
+  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
+  group_by(response_group,Period) %>% 
+  summarise(Med=median(Stability),
+            Low=quantile(Stability,probs = 0.05),
+            High=quantile(Stability,probs = 0.95))
+df2$Period<-df2$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 
 
+plot2<-df2 %>% ggplot(aes(x = response_group,
+                  y = Med,
+                  ymin = Low,
+                  ymax = High,
+                  col = response_group,
+                  shape = Period)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_pointrange(position = position_jitterdodge(),
+                  fatten = 5,
+                  show.legend = F) + 
+  labs(x = "Land use subset",
+       y = element_blank()) + 
+  theme_cowplot(12)
+
+plot1 + plot2 + plot_layout(widths = c(3,1))
+```
+
+For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
+
+**NDSI_Anthro - typhoon x landuse interaction**
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Anth" & Period %in% 'Pre-typhoon' & response_group %in% 'Total_var') 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Anth" & Period %in% 'Post-typhoon' & response_group %in% 'Total_var')
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon,
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
+
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+```
+
+NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow?
+
+Issues with model diagnostics (doesn't look a great fit) - random time intercept didn't help but don't fix the issue (caused nonconvergence). Different families seem to help (Beta maybe not best here?)
+
+Same but for forest vs developed: 
+
+```{r}
+
+# get pre vs post data for comparison
+dat_pre<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Anth" & Period %in% 'Pre-typhoon' & response_group %in% c('Developed_Var','Forest_Var')) 
+dat_post<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Anth" & Period %in% 'Post-typhoon' & response_group %in% c('Developed_Var','Forest_Var'))
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+
+# change format of landuse information
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+
+mod_nonspatial_beta <- 
+  brm(data = df, family = Beta(),
+      Stability ~ 1 + Typhoon * Landuse,
+      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
+      seed = 666)
+mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
+
+#check MCMC traces
+mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
+#check for agreement of chains
+mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
+# plot posterior estimates of fixed effects
+mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+
+## typhoon has an effect ##
+
+## Parameter fits and stats 
+
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+```
+
+Plot time series of results showing land use x typhoon effects:
+
+```{r}
+
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Anth")
+df$response_group[df$response_group %in% 'Total_var']<-'All'
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+df$response_group<-df$response_group %>% parse_character() %>% parse_factor(levels = c('All','Forest','Developed'))
+
+plot1<-df %>% ggplot(aes(x = Date_Time,
+                  y = Stability,
+                  col = response_group)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  geom_line(show.legend = F) + 
+  labs(x = "Time",
+       y = "Anthropophony Spatial variability") + 
+  theme_cowplot(12)
+
+df2<-df %>% 
+  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
+  group_by(response_group,Period) %>% 
+  summarise(Med=median(Stability),
+            Low=quantile(Stability,probs = 0.05),
+            High=quantile(Stability,probs = 0.95))
+df2$Period<-df2$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 
 
-AI SPATIAL VAR
+plot2<-df2 %>% ggplot(aes(x = response_group,
+                  y = Med,
+                  ymin = Low,
+                  ymax = High,
+                  col = response_group,
+                  shape = Period)) +
+  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  geom_pointrange(position = position_jitterdodge(),
+                  fatten = 5,
+                  show.legend = F) + 
+  labs(x = "Land use subset",
+       y = element_blank()) + 
+  theme_cowplot(12)
+
+plot1 + plot2 + plot_layout(widths = c(3,1))
+```
+
+For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
+
+### Bird detections
+
+## bird detection mean states
+
+**Total detections**
+
+Maybe include a species interaction here to avoid having to run models individually - see what Dave's already done.
+
+
 
 BIRDS MEAN
 
