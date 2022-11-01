@@ -24,6 +24,7 @@ library(readr)
 library(purrr)
 library(stringr)
 library(forcats)
+library(simpleboot)
 
 # get data
 load(here("Data/Stability_Acoustic_Indices.rda"))
@@ -719,6 +720,87 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ## acoustic index spatial variability
 
+Not using same Bayesian models for spatial variability here. Instead, take the nonparametric bootstrap of the CV (spatial variability) values within each day for forest and developed sites separately. Then compare whether boostrap confidence intervals overlap per day and can look for temporal patterns in land use effects on spatial variability. 
+
+**NDSI - typhoon x landuse interaction**
+
+Get 95% CIs of bootstraps per day:
+
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var'))
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
+
+# get dates
+temp<-df$Date_Time %>% 
+  as.character() %>% 
+  str_split(pattern = " ",simplify = T)
+df$Date<-temp[,1]
+rm(temp)
+
+# get output dataframe for bootstrapped results
+Spatial_int<-df %>% 
+  group_by(Landuse,Date) %>% 
+  summarise(Med = NA, Low = NA, High = NA)
+
+#### get this to work by bootstrapping first!! 
+
+# bootstrap and store the median and confidence intervals of the mean bootstrap
+for(i in 1:nrow(Spatial_int)){
+  
+  temp<-df$Stability[df$Landuse %in% Spatial_int$Landuse[i] & df$Date %in% Spatial_int$Date[i]] %>% 
+    one.boot(FUN = 'mean',R = 10000,student = F)
+  
+  Spatial_int$Med[i] <- temp$t %>% median(na.rm = T)
+  Spatial_int$Low[i] <- temp$t %>% quantile(na.rm = T, probs = 0.05)
+  Spatial_int$High[i] <- temp$t %>% quantile(na.rm = T, probs = 0.95)
+  rm(temp)
+  
+}
+
+```
+
+Plot results: 
+
+```{r}
+
+Spatial_int %>% ggplot(aes(x = Date,
+                  y = Med,
+                  ymin = Low, 
+                  ymax = High,
+                  col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = df$Date[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  geom_line(aes(x = Date,y = Med,group = Landuse)) +
+  geom_pointrange() + 
+  labs(x = "Date",
+       y = "Nonparametric mean bootstrap: NDSI Spatial variability") + 
+  theme_cowplot(12) 
+
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
+
+
+
+
+
+```
+
+
+Okay but this doesn't test explicitly for an interaction between land use and typhoon period does it? That was kinda the whole point. 
+
+
+
+
+
+
+
 **NDSI - typhoon x landuse interaction**
 
 ```{r}
@@ -816,6 +898,7 @@ bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
 
 ```
+
 Plot time series of results showing land use x typhoon effects:
 
 ```{r}
@@ -836,7 +919,9 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_line(show.legend = F) + 
   labs(x = "Time",
        y = "NDSI Spatial variability") + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 df2<-df %>% 
   filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
@@ -859,7 +944,9 @@ plot2<-df2 %>% ggplot(aes(x = response_group,
                   show.legend = F) + 
   labs(x = "Land use subset",
        y = element_blank()) + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 plot1 + plot2 + plot_layout(widths = c(3,1))
 ```
@@ -983,7 +1070,9 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_line(show.legend = F) + 
   labs(x = "Time",
        y = "Biophony Spatial variability") + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 df2<-df %>% 
   filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
@@ -1006,7 +1095,9 @@ plot2<-df2 %>% ggplot(aes(x = response_group,
                   show.legend = F) + 
   labs(x = "Land use subset",
        y = element_blank()) + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 plot1 + plot2 + plot_layout(widths = c(3,1))
 ```
@@ -1131,7 +1222,9 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_line(show.legend = F) + 
   labs(x = "Time",
        y = "Anthropophony Spatial variability") + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 df2<-df %>% 
   filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
@@ -1154,7 +1247,9 @@ plot2<-df2 %>% ggplot(aes(x = response_group,
                   show.legend = F) + 
   labs(x = "Land use subset",
        y = element_blank()) + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 plot1 + plot2 + plot_layout(widths = c(3,1))
 ```
@@ -1186,7 +1281,8 @@ df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest
 # Fit bayesian mixed effects model
 mod_nonspatial_lnorm <- 
   brm(data = df, family = lognormal(),
-      Stability ~ 1 + Landuse + Typhoon * Species_ID + (1|Site_ID),
+      Stability ~ 1 + Landuse + Typhoon + Species_ID + 
+        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666)
 mod_nonspatial_lnorm <- add_criterion(mod_nonspatial_lnorm, "loo")
@@ -1231,8 +1327,8 @@ corvusplot <- mut_mod %>%
 
 # Horornis #
 mut_mod<-mod_nonspatial_lnorm %>%
-  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
-  mutate(site_mean = b_TyphoonPost + 1.91 + r_Site_ID) # get posterior distribution data for plotting
+  spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDHorornis_diphone`, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDHorornis_diphone` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
 for (i in 1:length(unique(mut_mod$Site_ID))) {
   temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
@@ -1261,8 +1357,8 @@ horornisplot <- mut_mod %>%
 
 # Otus #
 mut_mod<-mod_nonspatial_lnorm %>%
-  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
-  mutate(site_mean = b_TyphoonPost + 0.38 + r_Site_ID) # get posterior distribution data for plotting
+  spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDOtus_elegans`, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDOtus_elegans` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
 for (i in 1:length(unique(mut_mod$Site_ID))) {
   temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
@@ -1290,7 +1386,7 @@ otusplot <-mut_mod %>%
   cowplot::theme_minimal_grid()
 
 # plots #
-plot_grid(corvusplot, otusplot, horornisplot, 
+plot_grid(corvusplot, horornisplot, otusplot, 
           ncol = 3, align = "hv", 
           labels = c("Corvus", "Horonis", "Otus"))
 
@@ -1306,6 +1402,12 @@ ape::Moran.I(bres, d_mat_inv)
 pp_check(mod_nonspatial_lnorm, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
 
 ```
+
+NB: takes 15 mins to run. 
+
+Any idea why Otus and Otus x landuse chains go crazy (numbers are insanely high) while everything else looks reasonable?
+
+
 
 ## bird detection temporal variability
 
@@ -1469,7 +1571,9 @@ plot1<-df %>% ggplot(aes(x = Date,
   geom_line(show.legend = F) + 
   labs(x = "Time",
        y = "Anthropophony Spatial variability") + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 df2<-df %>% 
   filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
@@ -1492,7 +1596,9 @@ plot2<-df2 %>% ggplot(aes(x = response_group,
                   show.legend = F) + 
   labs(x = "Land use subset",
        y = element_blank()) + 
-  theme_cowplot(12)
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
 
 plot1 + plot2 + plot_layout(widths = c(3,1))
 ```
