@@ -796,6 +796,10 @@ Spatial_int %>% ggplot(aes(x = Date,
 Okay but this doesn't test explicitly for an interaction between land use and typhoon period does it? That was kinda the whole point. 
 
 
+Try a break point model!! 
+
+
+
 
 
 
