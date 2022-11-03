@@ -24,7 +24,8 @@ library(readr)
 library(purrr)
 library(stringr)
 library(forcats)
-library(simpleboot)
+#library(simpleboot)
+library(segmented)
 
 # get data
 load(here("Data/Stability_Acoustic_Indices.rda"))
@@ -798,6 +799,23 @@ Okay but this doesn't test explicitly for an interaction between land use and ty
 
 Try a break point model!! 
 
+```{r}
+
+# get pre vs post data for comparison
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var'))
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
+
+# get dates
+temp<-df$Date_Time %>% 
+  as.character() %>% 
+  str_split(pattern = " ",simplify = T)
+df$Date<-temp[,1]
+rm(temp)
+df$Date<-df$Date %>% parse_date() %>%  julian.Date() %>% as.numeric()
 
 
 
@@ -805,7 +823,86 @@ Try a break point model!!
 
 
 
-**NDSI - typhoon x landuse interaction**
+
+library(glmmTMB)
+mod_nonspatial_beta <- 
+  glmmTMB(Stability ~ Date,
+              ziformula = ~1,
+              data = df,
+              family = beta_family(link = "logit"),
+              REML = FALSE)
+
+#### nb - the issue of "nonconformable arrays" might be because there are multiple values per date (they're not daily averages)
+
+  
+
+
+
+
+ 
+# split out time series of each land use class (without the response variable)
+test<-model.matrix(~ 1 + df$Landuse)*df$Date
+df_for<-test[,1]
+df_dev<-test[,2]
+
+#test<-model.frame(~ 1 + df$Landuse*df$Date)
+#df_for<-test[test[,1] %in% 'Forest',2]
+#df_for<-c(df_for,df_for)
+#df_dev<-test[test[,1] %in% 'Developed',2]
+#df_dev<-c(df_dev,df_dev)
+
+#temp.name<-names(df_for)
+#df_for<-unname(df_for)
+#df_dev<-unname(df_dev)
+#df_dev[1:3072]<-df_for[3073:6144]
+#names(df_for)<-temp.name
+#names(df_dev)<-temp.name
+
+test.mod<-lm(data = df,Stability ~ 1 + Landuse + df_for + df_dev)
+summary(test.mod)
+
+test.seg <- segmented(test.mod, seg.Z = ~ df_for + df_dev,
+                      psi = list(df_for=17805,df_dev=17805))
+summary(test.seg)
+
+plot.segmented(test.seg,term = df_for,res = T,conf.level = 0.95,col=2)
+plot.segmented(test.seg,term = df_dev,res = T,conf.level = 0.95,col=2)
+
+# this almost works, but it's forcing the intercept of df_dev through the origin (zero)
+
+
+
+
+
+
+ data("plant")
+# attach(plant)
+ plant %>%  head()
+ X<-model.matrix(~0+plant$group)*plant$time
+ head(X)
+ time.KV<-X[,1]
+ time.KW<-X[,2]
+ time.WC<-X[,3]
+ 
+X
+plant
+
+
+ 
+olm<-lm(y~0+group+ time.KV + time.KW + time.WC)
+ os<-segmented(olm, seg.Z= ~ time.KV + time.KW
+ + time.WC, psi=list(time.KV=c(300,450),
+ time.KW=c(450,600), time.WC=c(300,450)))
+
+```
+
+
+
+
+
+
+
+**NDSI**
 
 ```{r}
 
@@ -957,7 +1054,7 @@ plot1 + plot2 + plot_layout(widths = c(3,1))
 
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
 
-**NDSI_Bio - typhoon x landuse interaction**
+**NDSI_Bio **
 
 ```{r}
 
@@ -1108,7 +1205,7 @@ plot1 + plot2 + plot_layout(widths = c(3,1))
 
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
 
-**NDSI_Anthro - typhoon x landuse interaction**
+**NDSI_Anthro **
 
 ```{r}
 
@@ -1283,24 +1380,23 @@ df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','
 df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
 
 # Fit bayesian mixed effects model
-mod_nonspatial_lnorm <- 
-  brm(data = df, family = lognormal(),
-      Stability ~ 1 + Landuse + Typhoon + Species_ID + 
+mod_nonspatial_negb <- 
+  brm(data = df, family = negbinomial(),
+      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
         Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666)
-mod_nonspatial_lnorm <- add_criterion(mod_nonspatial_lnorm, "loo")
 
-#check MCMC traces
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "trace") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_negb, type = "trace") + theme_cowplot()
 #check for agreement of chains
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "dens_overlay") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_negb, type = "dens_overlay") + theme_cowplot()
 # plot posterior probabilities
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_negb, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+pp_check(mod_nonspatial_negb, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
 
 ## plot significant typhoon effect per species
 # Corvus #
-mut_mod<-mod_nonspatial_lnorm %>%
+mut_mod<-mod_nonspatial_negb %>%
   spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1330,7 +1426,7 @@ corvusplot <- mut_mod %>%
   cowplot::theme_minimal_grid()
 
 # Horornis #
-mut_mod<-mod_nonspatial_lnorm %>%
+mut_mod<-mod_nonspatial_negb %>%
   spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDHorornis_diphone`, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDHorornis_diphone` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1360,7 +1456,7 @@ horornisplot <- mut_mod %>%
   cowplot::theme_minimal_grid()
 
 # Otus #
-mut_mod<-mod_nonspatial_lnorm %>%
+mut_mod<-mod_nonspatial_negb %>%
   spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDOtus_elegans`, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDOtus_elegans` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1394,20 +1490,25 @@ plot_grid(corvusplot, horornisplot, otusplot,
           ncol = 3, align = "hv", 
           labels = c("Corvus", "Horonis", "Otus"))
 
-bayes_R2(mod_nonspatial_lnorm)
+bayes_R2(mod_nonspatial_negb)
 
-bres <- residuals(mod_nonspatial_lnorm)[,"Estimate"]
+bres <- residuals(mod_nonspatial_negb)[,"Estimate"]
 d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T))
 d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 ape::Moran.I(bres, d_mat_inv)
 
 # good fit to data
-pp_check(mod_nonspatial_lnorm, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
+pp_check(mod_nonspatial_negb, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
 
 ```
 
-NB: takes 15 mins to run. 
+Why do the posterior draws come from all 24 sites when the different species were only in a subset (17, 11, and 7)???
+
+- Need to fix this. Could explain why the chains are a bit all over the place
+
+
+
 
 Any idea why Otus and Otus x landuse chains go crazy (numbers are insanely high) while everything else looks reasonable?
 
