@@ -721,139 +721,98 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ## acoustic index spatial variability
 
-Not using same Bayesian models for spatial variability here. Instead, take the nonparametric bootstrap of the CV (spatial variability) values within each day for forest and developed sites separately. Then compare whether boostrap confidence intervals overlap per day and can look for temporal patterns in land use effects on spatial variability. 
+Not using same Bayesian models for spatial variability here. Instead, using break-point models to see if spatial variability changes after typhoons, and whether values and value change differ by land use. 
 
 **NDSI - typhoon x landuse interaction**
 
-Get 95% CIs of bootstraps per day:
+```{r}
+
+# prepare data
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & response_group %in% 'Total_var') # get pre vs post data for comparison
+df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
+
+#hist(df$Stability) # looks Gaussian
+olm<-lm(Stability ~ 0 + Date_Time,data = df) # linear model
+summary(olm)
+#plot(olm)
+
+# break-point model
+os <- segmented(olm, 
+                seg.Z = ~ Date_Time, # which variables to break
+                psi = 3000000) # where to break
+summary(os)
+AIC(os,olm) # break point model performs better
+
+intercept(os)$Date_Time + coef(os)['Date_Time']
+slope(os)$Date_Time
+
+vcov.segmented(os)
+```
+
+Now check for landuse effect:
 
 ```{r}
 
-# get pre vs post data for comparison
+# prepare data
 df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var'))
+  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
 df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
 df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
 colnames(df)[4]<-'Landuse'
 df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
+df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
 
-# get dates
-temp<-df$Date_Time %>% 
-  as.character() %>% 
-  str_split(pattern = " ",simplify = T)
-df$Date<-temp[,1]
-rm(temp)
-
-# get output dataframe for bootstrapped results
-Spatial_int<-df %>% 
-  group_by(Landuse,Date) %>% 
-  summarise(Med = NA, Low = NA, High = NA)
-
-#### get this to work by bootstrapping first!! 
-
-# bootstrap and store the median and confidence intervals of the mean bootstrap
-for(i in 1:nrow(Spatial_int)){
-  
-  temp<-df$Stability[df$Landuse %in% Spatial_int$Landuse[i] & df$Date %in% Spatial_int$Date[i]] %>% 
-    one.boot(FUN = 'mean',R = 10000,student = F)
-  
-  Spatial_int$Med[i] <- temp$t %>% median(na.rm = T)
-  Spatial_int$Low[i] <- temp$t %>% quantile(na.rm = T, probs = 0.05)
-  Spatial_int$High[i] <- temp$t %>% quantile(na.rm = T, probs = 0.95)
-  rm(temp)
-  
-}
-
-```
-
-Plot results: 
-
-```{r}
-
-Spatial_int %>% ggplot(aes(x = Date,
-                  y = Med,
-                  ymin = Low, 
-                  ymax = High,
-                  col = Landuse)) +
-  scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_vline(xintercept = df$Date[df$Period %in% 'Trami'][1],lty = 2) + 
-  geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(aes(x = Date,y = Med,group = Landuse)) +
-  geom_pointrange() + 
-  labs(x = "Date",
-       y = "Nonparametric mean bootstrap: NDSI Spatial variability") + 
-  theme_cowplot(12) 
-
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-
-
-
-
-```
-
-
-Okay but this doesn't test explicitly for an interaction between land use and typhoon period does it? That was kinda the whole point. 
-
-
-Try a break point model!! 
-
-```{r}
-
-# get pre vs post data for comparison
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var'))
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-
-# get dates
-temp<-df$Date_Time %>% 
-  as.character() %>% 
-  str_split(pattern = " ",simplify = T)
-df$Date<-temp[,1]
-rm(temp)
-df$Date<-df$Date %>% parse_date() %>%  julian.Date() %>% as.numeric()
-
-# split out time series of each land use class (without the response variable)
-temp<-model.matrix(~ 0 + df$Landuse)*(df$Date - min(df$Date))
+# split out time series for each land use class separately
+temp<-model.matrix(~ 0 + df$Landuse)*df$Date_Time
 date_for<-temp[,1]
 date_dev<-temp[,2]
 rm(temp)
 
-hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df)
+#hist(df$Stability) # looks Gaussian
+olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df) # linear model
 summary(olm)
-plot(olm)
+#plot(olm)
 
+# break-point model
 os <- segmented(olm, 
-                seg.Z = ~ date_for + date_dev,
-                psi = list(date_for=35,date_dev=35))
+                seg.Z = ~ date_for + date_dev, # which variables to break
+                psi = list(date_for=3000000,date_dev=3000000)) # where to break
 summary(os)
+AIC(os,olm) # break point model performs better
 
-# plot break point models:
-with(df, plot((Date - min(Date)), Stability, col="#29a62b"))
-with(subset(df, df$Landuse=="Forest"), 
-     points((Date - min(Date)), Stability,
-col="#a629a4"))
+intercept(os)$date_for + coef(os)["LanduseForest"]
+slope(os)$date_for
 
+intercept(os)$date_dev + coef(os)["LanduseDeveloped"]
+slope(os)$date_dev
+
+vcov.segmented(os)
+
+```
+
+Plot results:
+
+```{r}
+COL <- adjustcolor(c("#29a62b","#a629a4")[df$Landuse],alpha.f = 0.2)
+
+plot(x = (df$Date_Time),
+     y = df$Stability,
+     col = COL, 
+     xlab = 'Date',
+     ylab = 'NDSI Spatial Variability')
+abline(v = df$Date_Time[df$Period %in% 'Trami'][1],lwd = 2,lty = 'dashed')
+abline(v = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lwd = 2,lty = 'dashed')
 plot(os,term = date_for, 
-     res = F,conf.level = 0, 
-     col="#a629a4", interc=FALSE, 
+     col="#29a62b", interc=FALSE, 
      const=coef(os)["LanduseForest"], 
-     add=T, lwd=3)
-
+     add=T, lwd=2)
 plot(os,term = date_dev, 
-     res = F,conf.level = 0, 
-     col="#29a62b", interc=FALSE,
+     col="#a629a4", interc=FALSE,
      const=coef(os)["LanduseDeveloped"], 
-     add=T, lwd=3)
-
-plot.segmented(os,term = date_for,res = T,conf.level = 0.95,col="#a629a4")
-plot.segmented(os,term = date_dev,res = T,conf.level = 0.95,col="#29a62b")
-
+     add=T, lwd=2)
 
 
 df %>% ggplot(aes(x = Date_Time,
@@ -862,129 +821,22 @@ df %>% ggplot(aes(x = Date_Time,
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(show.legend = F) + 
-  labs(x = "Time",
+  geom_line(show.legend = F) +
+  labs(x = "Date",
        y = "NDSI Spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot(os,term = date_dev, 
-     res = F,conf.level = 0, 
-     col="#29a62b", interc=FALSE,
-     const=coef(os)["LanduseDeveloped"], 
-     add=T, lwd=3)
+predict.segmented(os) %>% plot()
 
-
-
-
-
+predict.segmented(os)[1:3072] %>% plot()
+predict.segmented(os)[3073:6144] %>% plot()
 
 ```
 
+Find a way to get the intercepts and slopes of the broken lines and plot those as simple geom_lines or annotations or something in the nicer ggplot
 
-
-
-
-
-
-**NDSI**
-
-```{r}
-
-# get pre vs post data for comparison
-dat_pre<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & Period %in% 'Pre-typhoon' & response_group %in% 'Total_var') 
-dat_post<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & Period %in% 'Post-typhoon' & response_group %in% 'Total_var')
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
-dat_post$Typhoon = rep("Post", nrow(dat_post))
-df <- rbind(dat_pre, dat_post)
-
-# change levels for model
-df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
-
-mod_nonspatial_beta <- 
-  brm(data = df, family = Beta(),
-      Stability ~ 1 + Typhoon,
-      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
-mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
-
-#check MCMC traces
-mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
-#check for agreement of chains
-mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
-# plot posterior estimates of fixed effects
-mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
-
-## typhoon has an effect ##
-
-## Parameter fits and stats 
-
-mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
-
-```
-
-NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow?
-
-Issues with model diagnostics (doesn't look a great fit) - random time intercept didn't help but don't fix the issue (caused nonconvergence). Different families seem to help (Beta maybe not best here?)
-
-Same but for forest vs developed: 
-
-```{r}
-
-# get pre vs post data for comparison
-dat_pre<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & Period %in% 'Pre-typhoon' & response_group %in% c('Developed_Var','Forest_Var')) 
-dat_post<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & Period %in% 'Post-typhoon' & response_group %in% c('Developed_Var','Forest_Var'))
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
-dat_post$Typhoon = rep("Post", nrow(dat_post))
-df <- rbind(dat_pre, dat_post)
-
-# change format of landuse information
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-
-# change levels for model
-df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
-df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-mod_nonspatial_beta <- 
-  brm(data = df, family = Beta(),
-      Stability ~ 1 + Typhoon * Landuse,
-      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
-mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
-
-#check MCMC traces
-mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
-#check for agreement of chains
-mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
-# plot posterior estimates of fixed effects
-mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
-
-## typhoon has an effect ##
-
-## Parameter fits and stats 
-
-mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
-
-```
 
 Plot time series of results showing land use x typhoon effects:
 
@@ -1041,6 +893,78 @@ plot1 + plot2 + plot_layout(widths = c(3,1))
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
 
 **NDSI_Bio **
+
+```{r}
+
+# prepare data
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI_Bio" & response_group %in% 'Total_var') # get pre vs post data for comparison
+df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
+
+#hist(df$Stability) # looks Gaussian
+olm<-lm(Stability ~ 0 + Date_Time,data = df) # linear model
+summary(olm)
+#plot(olm)
+
+# break-point model
+os <- segmented(olm, 
+                seg.Z = ~ Date_Time, # which variables to break
+                psi = 3000000) # where to break
+summary(os)
+AIC(os,olm) # break point model performs better
+
+intercept(os)$Date_Time + coef(os)['Date_Time']
+slope(os)$Date_Time
+
+vcov.segmented(os)
+```
+
+Now check for landuse effect:
+
+```{r}
+
+# prepare data
+df<-tidy.spatial_AI %>%
+  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
+df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
+df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
+colnames(df)[4]<-'Landuse'
+df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
+df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
+
+# split out time series for each land use class separately
+temp<-model.matrix(~ 0 + df$Landuse)*df$Date_Time
+date_for<-temp[,1]
+date_dev<-temp[,2]
+rm(temp)
+
+#hist(df$Stability) # looks Gaussian
+olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df) # linear model
+summary(olm)
+#plot(olm)
+
+# break-point model
+os <- segmented(olm, 
+                seg.Z = ~ date_for + date_dev, # which variables to break
+                psi = list(date_for=3000000,date_dev=3000000)) # where to break
+summary(os)
+AIC(os,olm) # break point model performs better
+
+intercept(os)$date_for + coef(os)["LanduseForest"]
+slope(os)$date_for
+
+intercept(os)$date_dev + coef(os)["LanduseDeveloped"]
+slope(os)$date_dev
+
+vcov.segmented(os)
+
+```
+
+
+
+
 
 ```{r}
 
