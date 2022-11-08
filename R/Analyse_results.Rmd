@@ -745,6 +745,8 @@ os <- segmented(olm,
 summary(os)
 AIC(os,olm) # break point model performs better
 
+davies.test(olm)
+
 intercept(os)$Date_Time + coef(os)['Date_Time']
 slope(os)$Date_Time
 
@@ -1266,6 +1268,12 @@ plot1 + plot2 + plot_layout(widths = c(3,1))
 ```
 
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
+
+
+
+
+
+
 
 ### Bird detections
 
