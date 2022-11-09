@@ -730,11 +730,12 @@ Not using same Bayesian models for spatial variability here. Instead, using brea
 # prepare data
 df<-tidy.spatial_AI %>%
   filter(Index %in% "NDSI" & response_group %in% 'Total_var') # get pre vs post data for comparison
-df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
+df2<-df
+df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
 #hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Date_Time,data = df) # linear model
+olm<-lm(Stability ~ 0 + Date_Time,data = df2) # linear model
 summary(olm)
 #plot(olm)
 
@@ -742,21 +743,81 @@ summary(olm)
 os <- segmented(olm, 
                 seg.Z = ~ Date_Time, # which variables to break
                 psi = 3000000) # where to break
-summary(os)
 AIC(os,olm) # break point model performs better
 
 davies.test(olm)
+summary(os)
+#intercept(os)$Date_Time + coef(os)['Date_Time']
+#slope(os)$Date_Time
+#vcov.segmented(os)
 
-intercept(os)$Date_Time + coef(os)['Date_Time']
-slope(os)$Date_Time
+# visualise breakpoint
+plot.segmented(os)
 
-vcov.segmented(os)
+# get the location of the breakpoint (+/- error)
+Psi_min<-summary(os)$psi[2]-summary(os)$psi[3]
+Psi_med<-summary(os)$psi[2]
+Psi_max<-summary(os)$psi[2]+summary(os)$psi[3]
+
+# get dates of breakpoint
+Psi_min<-df$Date_Time[min(max(which(df2$Date_Time <= Psi_min),na.rm = T), min(which(df2$Date_Time == Psi_min),na.rm = T),na.rm = T)]
+Psi_med<-df$Date_Time[min(max(which(df2$Date_Time <= Psi_med),na.rm = T), min(which(df2$Date_Time == Psi_med),na.rm = T),na.rm = T)]
+Psi_max<-df$Date_Time[min(max(which(df2$Date_Time <= Psi_max),na.rm = T), min(which(df2$Date_Time == Psi_max),na.rm = T),na.rm = T)]
+
+# compare pre- and post-break acoustic index values
+Break_results<-data_frame(Period = c('Pre-break','Post-break'), Lo_95 = NA, Med = NA, Up_95 = NA)
+Break_results$Lo_95[Break_results$Period %in% 'Pre-break'] <- df$Stability[df$Date_Time < Psi_min] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Pre-break']  <- df$Stability[df$Date_Time < Psi_min] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Pre-break']  <- df$Stability[df$Date_Time < Psi_min] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Lo_95[Break_results$Period %in% 'Post-break']<-df$Stability[df$Date_Time > Psi_max] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Post-break']<-df$Stability[df$Date_Time > Psi_max] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Post-break']<-df$Stability[df$Date_Time > Psi_max] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-break','Post-break'))
+
 ```
+
+Plot results: 
+
+```{r}
+
+plot1<-df %>% ggplot(aes(x = Date_Time,
+                  y = Stability)) +
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  geom_line(show.legend = F) + 
+  geom_pointrange(y = min(df$Stability), xmin = Psi_min, xmax = Psi_max,x = Psi_med) + 
+  labs(x = "Time",
+       y = "NDSI Spatial variability") + 
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max())) 
+
+plot2<-Break_results %>% ggplot(aes(x = Period,
+                  y = Med,
+                  ymin = Lo_95,
+                  ymax = Up_95,
+                  shape = Period)) +
+  geom_pointrange(fatten = 5,
+                  show.legend = F) + 
+  labs(x = "Break-point subset",
+       y = element_blank()) + 
+  theme_cowplot(12) + 
+  ylim(c(df$Stability %>% min(),
+         df$Stability %>% max()))
+
+plot1 + plot2 + plot_layout(widths = c(3,1))
+
+```
+
+FIND OUT WHY THIS BREAK POINT IS IN A SUPER WEIRD PLACE? IS IT POSSIBLE TO FORCE A BREAK POINT?
+
+
+
+
 
 Now check for landuse effect:
 
 ```{r}
-
 # prepare data
 df<-tidy.spatial_AI %>%
   filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
@@ -764,17 +825,18 @@ df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
 df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
 colnames(df)[4]<-'Landuse'
 df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-df$Date_Time<-df$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df$Date_Time<-df$Date_Time - min(df$Date_Time) # scale date to start at zero for model
+df2<-df
+df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
 # split out time series for each land use class separately
-temp<-model.matrix(~ 0 + df$Landuse)*df$Date_Time
+temp<-model.matrix(~ 0 + df2$Landuse)*df2$Date_Time
 date_for<-temp[,1]
 date_dev<-temp[,2]
 rm(temp)
 
 #hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df) # linear model
+olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df2) # linear model
 summary(olm)
 #plot(olm)
 
@@ -782,117 +844,113 @@ summary(olm)
 os <- segmented(olm, 
                 seg.Z = ~ date_for + date_dev, # which variables to break
                 psi = list(date_for=3000000,date_dev=3000000)) # where to break
-summary(os)
+
 AIC(os,olm) # break point model performs better
+#intercept(os)$date_for + coef(os)["LanduseForest"]
+#slope(os)$date_for
+#intercept(os)$date_dev + coef(os)["LanduseDeveloped"]
+#slope(os)$date_dev
+#vcov.segmented(os)
 
-intercept(os)$date_for + coef(os)["LanduseForest"]
-slope(os)$date_for
+#davies.test(olm,seg.Z = )
+summary(os)
 
-intercept(os)$date_dev + coef(os)["LanduseDeveloped"]
-slope(os)$date_dev
+# visualise breakpoint
+#plot.segmented(os)$psi1.date_for
 
-vcov.segmented(os)
+# get the location of the breakpoint (+/- error)
 
+for_min<-summary(os)$psi[3]-summary(os)$psi[5] # forest
+for_med<-summary(os)$psi[3]
+for_max<-summary(os)$psi[3]+summary(os)$psi[5]
+for_min<-df$Date_Time[min(max(which(df2$Date_Time <= for_min),na.rm = T), min(which(df2$Date_Time == for_min),na.rm = T),na.rm = T)] # get dates of breakpoint - forest
+for_med<-df$Date_Time[min(max(which(df2$Date_Time <= for_med),na.rm = T), min(which(df2$Date_Time == for_med),na.rm = T),na.rm = T)]
+for_max<-df$Date_Time[min(max(which(df2$Date_Time <= for_max),na.rm = T), min(which(df2$Date_Time == for_max),na.rm = T),na.rm = T)]
+
+dev_min<-summary(os)$psi[4]-summary(os)$psi[6] # developed
+dev_med<-summary(os)$psi[4]
+dev_max<-summary(os)$psi[4]+summary(os)$psi[6]
+dev_min<-df$Date_Time[min(max(which(df2$Date_Time <= dev_min),na.rm = T), min(which(df2$Date_Time == dev_min),na.rm = T),na.rm = T)] # get dates of breakpoint - dev
+dev_med<-df$Date_Time[min(max(which(df2$Date_Time <= dev_med),na.rm = T), min(which(df2$Date_Time == dev_med),na.rm = T),na.rm = T)]
+dev_max<-df$Date_Time[min(max(which(df2$Date_Time <= dev_max),na.rm = T), min(which(df2$Date_Time == dev_max),na.rm = T),na.rm = T)]
+
+# compare pre- and post-break acoustic index values
+Break_results<-data_frame(Period = c('Pre-break','Pre-break','Post-break','Post-break'), 
+                          Landuse = c('Forest','Developed','Forest','Developed'), 
+                          Lo_95 = NA, Med = NA, Up_95 = NA)
+Break_results$Lo_95[Break_results$Period %in% 'Pre-break' & 
+                      Break_results$Landuse %in% 'Forest']<-df$Stability[df$Date_Time < for_min] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Pre-break' & 
+                    Break_results$Landuse %in% 'Forest']  <- df$Stability[df$Date_Time < for_min] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Pre-break' & 
+                      Break_results$Landuse %in% 'Forest']  <- df$Stability[df$Date_Time < for_min] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Lo_95[Break_results$Period %in% 'Post-break' & 
+                      Break_results$Landuse %in% 'Forest']<-df$Stability[df$Date_Time > for_max] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Post-break' & 
+                    Break_results$Landuse %in% 'Forest']<-df$Stability[df$Date_Time > for_max] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Post-break' & 
+                      Break_results$Landuse %in% 'Forest']<-df$Stability[df$Date_Time > for_max] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Lo_95[Break_results$Period %in% 'Pre-break' & 
+                      Break_results$Landuse %in% 'Developed']<-df$Stability[df$Date_Time < dev_min] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Pre-break' & 
+                    Break_results$Landuse %in% 'Developed']  <- df$Stability[df$Date_Time < dev_min] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Pre-break' & 
+                      Break_results$Landuse %in% 'Developed']  <- df$Stability[df$Date_Time < dev_min] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Lo_95[Break_results$Period %in% 'Post-break' & 
+                      Break_results$Landuse %in% 'Developed']<-df$Stability[df$Date_Time > dev_max] %>% quantile(c(0.05)) %>% as.numeric()
+Break_results$Med[Break_results$Period %in% 'Post-break' & 
+                    Break_results$Landuse %in% 'Developed']<-df$Stability[df$Date_Time > dev_max] %>% quantile(c(0.5)) %>% as.numeric()
+Break_results$Up_95[Break_results$Period %in% 'Post-break' & 
+                      Break_results$Landuse %in% 'Developed']<-df$Stability[df$Date_Time > dev_max] %>% quantile(c(0.95)) %>% as.numeric()
+Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-break','Post-break'))
 ```
 
-Plot results:
+Plot results: 
 
 ```{r}
-COL <- adjustcolor(c("#29a62b","#a629a4")[df$Landuse],alpha.f = 0.2)
 
-plot(x = (df$Date_Time),
-     y = df$Stability,
-     col = COL, 
-     xlab = 'Date',
-     ylab = 'NDSI Spatial Variability')
-abline(v = df$Date_Time[df$Period %in% 'Trami'][1],lwd = 2,lty = 'dashed')
-abline(v = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lwd = 2,lty = 'dashed')
-plot(os,term = date_for, 
-     col="#29a62b", interc=FALSE, 
-     const=coef(os)["LanduseForest"], 
-     add=T, lwd=2)
-plot(os,term = date_dev, 
-     col="#a629a4", interc=FALSE,
-     const=coef(os)["LanduseDeveloped"], 
-     add=T, lwd=2)
-
-
-df %>% ggplot(aes(x = Date_Time,
+plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
                   col = Landuse)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(show.legend = F) +
-  labs(x = "Date",
-       y = "NDSI Spatial variability") + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-predict.segmented(os) %>% plot()
-
-predict.segmented(os)[1:3072] %>% plot()
-predict.segmented(os)[3073:6144] %>% plot()
-
-```
-
-Find a way to get the intercepts and slopes of the broken lines and plot those as simple geom_lines or annotations or something in the nicer ggplot
-
-
-Plot time series of results showing land use x typhoon effects:
-
-```{r}
-
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI")
-df$response_group[df$response_group %in% 'Total_var']<-'All'
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-df$response_group<-df$response_group %>% parse_character() %>% parse_factor(levels = c('All','Forest','Developed'))
-
-plot1<-df %>% ggplot(aes(x = Date_Time,
-                  y = Stability,
-                  col = response_group)) +
-  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
+  geom_pointrange(y = min(df$Stability),xmin = for_min,xmax = for_max,x = for_med,col = '#29a62b') + 
+  geom_pointrange(y = min(df$Stability),xmin = dev_min,xmax = dev_max,x = dev_med) + 
   labs(x = "Time",
        y = "NDSI Spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
+         df$Stability %>% max())) 
 
-df2<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(response_group,Period) %>% 
-  summarise(Med=median(Stability),
-            Low=quantile(Stability,probs = 0.05),
-            High=quantile(Stability,probs = 0.95))
-df2$Period<-df2$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-
-
-plot2<-df2 %>% ggplot(aes(x = response_group,
+plot2<-Break_results %>% ggplot(aes(x = Period,
                   y = Med,
-                  ymin = Low,
-                  ymax = High,
-                  col = response_group,
+                  ymin = Lo_95,
+                  ymax = Up_95,
+                  col = Landuse,
                   shape = Period)) +
-  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_pointrange(position = position_jitterdodge(),
                   fatten = 5,
                   show.legend = F) + 
-  labs(x = "Land use subset",
+  labs(x = "Break-point subset",
        y = element_blank()) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
 plot1 + plot2 + plot_layout(widths = c(3,1))
+
 ```
 
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
+
+
+
+
+
+
 
 **NDSI_Bio **
 
