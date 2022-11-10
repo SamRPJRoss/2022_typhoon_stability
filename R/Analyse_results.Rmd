@@ -1486,7 +1486,7 @@ NB: Beta distribution seems to be a bit better - check data distribution
 
 ## bird detection spatial variability
 
-**bird detections**
+**bird detections - species effect**
 
 ```{r}
 
@@ -1607,11 +1607,10 @@ date_Horo_for<-temp[,2]
 date_Otus_for<-temp[,3]
 date_Corv_dev<-temp[,4]
 date_Horo_dev<-temp[,5]
-date_Otus_dev<-temp[,6]
 rm(temp)
 
 #hist(df$Stability) # looks lognormal
-olm<-glm(Stability ~ 0 + Species + Landuse + date_Corv_for + date_Horo_for + date_Otus_for + date_Corv_dev + date_Horo_dev + date_Otus_dev,
+olm<-glm(Stability ~ 0 + Species + Landuse + date_Corv_for + date_Horo_for + date_Otus_for + date_Corv_dev + date_Horo_dev,
          data = df2,family = gaussian(link = 'log')) # linear model
 
 summary(olm)
@@ -1621,27 +1620,28 @@ summary(olm)
 Psi_1<-df$Date[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
 Psi_2<-df$Date[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
 
-
-##### I GOT TO HERE ££££££££
-
-
-
 ## break-point model ##
 os <- segmented(olm, 
-                seg.Z = ~ date_Corv + date_Horo + date_Otus, # which variables to break
-                psi = list(date_Corv=c(Psi_1,Psi_2),
-                           date_Horo=c(Psi_1,Psi_2),
-                           date_Otus=c(Psi_1,Psi_2)),
+                seg.Z = ~ date_Corv_for + date_Horo_for + date_Otus_for + date_Corv_dev + date_Horo_dev, # which variables to break
+                psi = list(date_Corv_for=c(Psi_1,Psi_2),
+                           date_Horo_for=c(Psi_1,Psi_2),
+                           date_Otus_for=c(Psi_1,Psi_2),
+                           date_Corv_dev=c(Psi_1,Psi_2),
+                           date_Horo_dev=c(Psi_1,Psi_2)),
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_Corv,
+davies.test(olm,seg.Z = ~ date_Corv_for,
             values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_Horo,
+davies.test(olm,seg.Z = ~ date_Horo_for,
             values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-davies.test(olm,seg.Z = ~ date_Otus,
+davies.test(olm,seg.Z = ~ date_Otus_for,
+            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
+davies.test(olm,seg.Z = ~ date_Corv_dev,
+            values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
+davies.test(olm,seg.Z = ~ date_Horo_dev,
             values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
 
 summary(os)
@@ -1649,111 +1649,60 @@ summary(os)
 # compare pre- and post-break acoustic index values
 Break_results<-df %>% 
   filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Species,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
+  group_by(Species,Landuse,Period) %>% 
+  summarise(Med=median(Stability,na.rm = T),
+            Lo_95=quantile(Stability,probs = 0.05,na.rm = T),
+            Up_95=quantile(Stability,probs = 0.95,na.rm = T))
+
+# fix broken forest vs developed results
+Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Forest' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]<-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]
+Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Forest' & Break_results$Period %in% 'Post-typhoon',c(4:6)]<-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Post-typhoon',c(4:6)]
+Break_results[Break_results$Species %in% 'Otus_elegans'&Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]<-NA
+Break_results[Break_results$Species %in% 'Otus_elegans'&Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Post-typhoon',c(4:6)]<-NA
+
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
 Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos',
                                                                                             'Horornis_diphone','Otus_elegans'))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# split out time series for each land use class separately
-temp<-model.matrix(~ 0 + df2$Landuse)*df2$Date_Time
-date_for<-temp[,1]
-date_dev<-temp[,2]
-rm(temp)
-
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df2) # linear model
-
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_for + date_dev, # which variables to break
-                psi = list(date_for=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                  date_dev=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
-
-AIC(os,olm) # break point model performs better
-
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_for,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_dev,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of developed sites
-summary(os)
-
-
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
-
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Landuse,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
+#df$Period<-df$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+#df$Species<-df$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
 ```
 
 Plot results: 
 
 ```{r}
 
-plot1<-df %>% ggplot(aes(x = Date_Time,
+plot1<-df %>% ggplot(aes(x = Date,
                   y = Stability,
+                  alpha = Species,
                   col = Landuse)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
+  scale_alpha_manual(values = c(1,0.6,0.3)) +
+  geom_vline(xintercept = df$Date[df$Period %in% 'Trami'][1],lty = 2) + 
+  geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI Spatial variability") + 
+       y = "Species detections Spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
-         df$Stability %>% max())) 
+         df$Stability %>% max())) + 
+  facet_grid(Species ~ .)
 
-plot2<-Break_results %>% ggplot(aes(x = Landuse,
+plot2<-Break_results %>% ggplot(aes(x = Species,
                   y = Med,
                   ymin = Lo_95,
                   ymax = Up_95,
+                  alpha = Species,
                   col = Landuse,
                   shape = Period)) +
+  scale_alpha_manual(values = c(1,0.6,0.3)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_pointrange(position = position_jitterdodge(),
                   fatten = 5,
                   show.legend = F) + 
-  labs(x = "Landuse",
+  labs(x = "Species",
        y = element_blank()) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
@@ -1763,169 +1712,9 @@ plot1 + plot2 + plot_layout(widths = c(3,1))
 
 ```
 
+THE COLOURS ARE WRONG IN THE FIRST PANEL - WHY DOES THIS DATAFRAME SEEM TO THINK THE OWLS ARE ONLY IN THE DEVELOPED SITES (ERROR IS IN BIRD DATA - stored as developed instead of forest...)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r}
-
-dat_pre<-tidy.spatial_bird %>%
-  filter(Period %in% 'Pre-typhoon' & response_group %in% 'Total_Var') 
-dat_post<-tidy.spatial_bird %>%
-  filter(Period %in% 'Post-typhoon' & response_group %in% 'Total_Var') 
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
-dat_post$Typhoon = rep("Post", nrow(dat_post))
-df <- rbind(dat_pre, dat_post)
-
-# change levels for model
-df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
-
-mod_nonspatial_lnorm <- 
-  brm(data = df, family = lognormal(),
-      Stability ~ 1 + Typhoon * Species + (1|Species),
-      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
-mod_nonspatial_lnorm <- add_criterion(mod_nonspatial_lnorm, "loo")
-
-#check MCMC traces
-mcmc_plot(mod_nonspatial_lnorm, type = "trace") + theme_cowplot()
-#check for agreement of chains
-mcmc_plot(mod_nonspatial_lnorm, type = "dens_overlay") + theme_cowplot()
-# plot posterior estimates of fixed effects
-mcmc_plot(mod_nonspatial_lnorm, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
-
-## typhoon has an effect ##
-
-## Parameter fits and stats 
-
-mod_nonspatial_lnorm$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_lnorm) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_lnorm, ndraws = 500) + theme_cowplot()
-
-```
-
-NB: there's no random effect in this model because date_time is different for each data point... maybe should include date as a random effect somehow?
-
-Issues with model diagnostics (doesn't look a great fit) - random time intercept didn't help but don't fix the issue (caused nonconvergence). Different families seem to help (Beta maybe not best here?)
-
-Same but for forest vs developed: 
-
-```{r}
-
-# get pre vs post data for comparison
-dat_pre<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Anth" & Period %in% 'Pre-typhoon' & response_group %in% c('Developed_Var','Forest_Var')) 
-dat_post<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Anth" & Period %in% 'Post-typhoon' & response_group %in% c('Developed_Var','Forest_Var'))
-dat_pre<-dat_pre[complete.cases(dat_pre),]
-dat_post<-dat_post[complete.cases(dat_post),]
-dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
-dat_post$Typhoon = rep("Post", nrow(dat_post))
-df <- rbind(dat_pre, dat_post)
-
-# change format of landuse information
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-
-# change levels for model
-df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
-df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
-
-mod_nonspatial_beta <- 
-  brm(data = df, family = Beta(),
-      Stability ~ 1 + Typhoon * Landuse,
-      iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
-mod_nonspatial_beta <- add_criterion(mod_nonspatial_beta, "loo")
-
-#check MCMC traces
-mcmc_plot(mod_nonspatial_beta, type = "trace") + theme_cowplot()
-#check for agreement of chains
-mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
-# plot posterior estimates of fixed effects
-mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
-
-## typhoon has an effect ##
-
-## Parameter fits and stats 
-
-mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
-
-```
-
-Plot time series of results showing land use x typhoon effects:
-
-```{r}
-
-df<-tidy.spatial_bird
-df$response_group[df$response_group %in% 'Total_var']<-'All'
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-df$response_group<-df$response_group %>% parse_character() %>% parse_factor(levels = c('All','Forest','Developed'))
-
-plot1<-df %>% ggplot(aes(x = Date,
-                  y = Stability,
-                  col = response_group)) +
-  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
-  geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(show.legend = F) + 
-  labs(x = "Time",
-       y = "Anthropophony Spatial variability") + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-df2<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(response_group,Period) %>% 
-  summarise(Med=median(Stability),
-            Low=quantile(Stability,probs = 0.05,na.rm=T),
-            High=quantile(Stability,probs = 0.95,na.rm=T))
-df2$Period<-df2$Period %>% parse_character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-
-
-plot2<-df2 %>% ggplot(aes(x = response_group,
-                  y = Med,
-                  ymin = Low,
-                  ymax = High,
-                  col = response_group,
-                  shape = Period)) +
-  scale_colour_manual(values = c('black',"#29a62b","#a629a4")) +
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Land use subset",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-plot1 + plot2 + plot_layout(widths = c(3,1))
-```
-
-
+Quick fix is change forest and developed in df (do it above so don't need to change it in break_results)
 
 
 
