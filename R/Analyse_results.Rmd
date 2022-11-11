@@ -781,7 +781,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI Spatial variability") + 
+       y = "NDSI spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -799,8 +799,8 @@ plot2<-Break_results %>% ggplot(aes(x = Period,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_a
 ```
 
 Now check for landuse effect:
@@ -882,7 +882,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI Spatial variability") + 
+       y = "NDSI spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -903,9 +903,14 @@ plot2<-Break_results %>% ggplot(aes(x = Landuse,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_b
 ```
+
+```{r}
+panel_a / panel_b
+```
+
 
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
 
@@ -967,7 +972,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI_Bio Spatial variability") + 
+       y = expression(paste("NDSI"["Bio"]," spatial variability"))) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -985,8 +990,8 @@ plot2<-Break_results %>% ggplot(aes(x = Period,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_a
 ```
 
 Now check for landuse effect:
@@ -1068,7 +1073,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI_Bio Spatial variability") + 
+       y = expression(paste("NDSI"["Bio"]," spatial variability"))) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -1089,9 +1094,14 @@ plot2<-Break_results %>% ggplot(aes(x = Landuse,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_b
 ```
+
+```{r}
+panel_a / panel_b
+```
+
 
 **NDSI_Anthro - no effect**
 
@@ -1151,7 +1161,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI_Anthro Spatial variability") + 
+       y = expression(paste("NDSI"["Anthro"]," spatial variability"))) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -1169,8 +1179,8 @@ plot2<-Break_results %>% ggplot(aes(x = Period,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_a
 ```
 
 NB: model slopes differ slightly so Davies test is sig.
@@ -1254,7 +1264,7 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "NDSI_Anthro Spatial variability") + 
+       y = expression(paste("NDSI"["Anthro"]," spatial variability"))) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -1275,9 +1285,14 @@ plot2<-Break_results %>% ggplot(aes(x = Landuse,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_b
 ```
+
+```{r}
+panel_a / panel_b
+```
+
 
 NB: model slopes differ slightly so Davies test is sig.
 
@@ -1543,13 +1558,15 @@ Break_results<-df %>%
             Lo_95=quantile(Stability,probs = 0.05),
             Up_95=quantile(Stability,probs = 0.95))
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos',
-                                                                                            'Horornis_diphone','Otus_elegans'))
+Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
 ```
 
 Plot results: 
 
 ```{r}
+
+Sp_labs<-c('C. macrorhynchos','H. diphone','O. elegans')
+names(Sp_labs)<-c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans')
 
 plot1<-df %>% ggplot(aes(x = Date,
                   y = Stability,
@@ -1560,7 +1577,7 @@ plot1<-df %>% ggplot(aes(x = Date,
   geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "Species detections Spatial variability") + 
+       y = "Species detection spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
@@ -1578,12 +1595,13 @@ plot2<-Break_results %>% ggplot(aes(x = Species,
                   show.legend = F) + 
   labs(x = "Species",
        y = element_blank()) + 
+  scale_x_discrete(labels = Sp_labs) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_a
 ```
 
 Now check for landuse effect:
@@ -1596,6 +1614,8 @@ df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
 df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
 colnames(df)[4]<-'Landuse'
 df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
+df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Forest']<-df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Developed'] # fix error in forest owl data (showing up as developed for some reason)
+df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Developed']<-NA # fix error in forest owl data
 df2<-df
 df2$Date<-df2$Date %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
 df2$Date<-df2$Date - min(df2$Date) # scale date to start at zero for model
@@ -1643,7 +1663,6 @@ davies.test(olm,seg.Z = ~ date_Corv_dev,
             values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
 davies.test(olm,seg.Z = ~ date_Horo_dev,
             values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-
 summary(os)
 
 # compare pre- and post-break acoustic index values
@@ -1654,20 +1673,9 @@ Break_results<-df %>%
             Lo_95=quantile(Stability,probs = 0.05,na.rm = T),
             Up_95=quantile(Stability,probs = 0.95,na.rm = T))
 
-# fix broken forest vs developed results
-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Forest' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]<-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]
-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Forest' & Break_results$Period %in% 'Post-typhoon',c(4:6)]<-Break_results[Break_results$Species %in% 'Otus_elegans' & Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Post-typhoon',c(4:6)]
-Break_results[Break_results$Species %in% 'Otus_elegans'&Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Pre-typhoon',c(4:6)]<-NA
-Break_results[Break_results$Species %in% 'Otus_elegans'&Break_results$Landuse %in% 'Developed' & Break_results$Period %in% 'Post-typhoon',c(4:6)]<-NA
-
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos',
-                                                                                            'Horornis_diphone','Otus_elegans'))
-
-#df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-#df$Period<-df$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-#df$Species<-df$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
+Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
 ```
 
 Plot results: 
@@ -1684,11 +1692,13 @@ plot1<-df %>% ggplot(aes(x = Date,
   geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = "Species detections Spatial variability") + 
+       y = "Species detection spatial variability") + 
   theme_cowplot(12) + 
+  theme(strip.background = element_rect(fill = 'white')) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) + 
-  facet_grid(Species ~ .)
+  facet_grid(Species ~ .,
+             labeller = labeller(Species = Sp_labs))
 
 plot2<-Break_results %>% ggplot(aes(x = Species,
                   y = Med,
@@ -1702,29 +1712,22 @@ plot2<-Break_results %>% ggplot(aes(x = Species,
   geom_pointrange(position = position_jitterdodge(),
                   fatten = 5,
                   show.legend = F) + 
-  labs(x = "Species",
+  labs(x = 'Species',
        y = element_blank()) + 
+  scale_x_discrete(labels = Sp_labs) + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max()))
 
-plot1 + plot2 + plot_layout(widths = c(3,1))
-
+panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
+panel_b
 ```
 
-THE COLOURS ARE WRONG IN THE FIRST PANEL - WHY DOES THIS DATAFRAME SEEM TO THINK THE OWLS ARE ONLY IN THE DEVELOPED SITES (ERROR IS IN BIRD DATA - stored as developed instead of forest...)
+```{r}
+panel_a / panel_b
+```
 
-Quick fix is change forest and developed in df (do it above so don't need to change it in break_results)
-
-
-
-
-
-
-
-
-
-
+** Do SAME BUT FOR DIFFERENT TIME HORIZONS BEFORE AND AFTER TYPHOONS - TO SHOW RESULTS DON'T DEPEND ON TIME BEFORE/AFTER TYPHOONS
 
 
 
