@@ -37,9 +37,7 @@ Site_order<-Landuse_1000$site_id[order(Landuse_1000$PC1)]
 rm(Landuse_1000)
 ```
 
-This markdown is for building models to test effects of land use and typhoons on acoustic indices and bird species detections. 
-Modeling framework uses Bayesian models to test for effects of typhoons and land use (plus their interaction) on means and variabilities of acoustic indices and bird detections. Also tests land use effect on acoustic index resistance and recovery.
-Can test for spatial autocorrelation of model residuals and fit spatial error terms where needed.
+This markdown is for building models to test effects of land use and typhoons on acoustic indices and bird species detections. Modeling framework uses Bayesian models to test for effects of typhoons and land use (plus their interaction) on means and variabilities of acoustic indices and bird detections. Also tests land use effect on acoustic index resistance and recovery. Can test for spatial autocorrelation of model residuals and fit spatial error terms where needed.
 
 ### Acoustic indices
 
@@ -48,7 +46,6 @@ Can test for spatial autocorrelation of model residuals and fit spatial error te
 **NDSI - negative change after typhoon**
 
 ```{r}
-
 # get pre vs post data for comparison
 dat_pre<-tidy.stability_AI %>%
   filter(Index %in% "NDSI" & response_variable %in% 'Pre_mean') 
@@ -81,7 +78,27 @@ mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
 # plot posterior estimates of fixed effects
 mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
 
-## typhoon has an effect ##
+## Parameter fits and stats 
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
+
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+summary(mod_nonspatial_beta)
+
+```
+
+plot results:
+
+```{r}
 
 mut_mod<-mod_nonspatial_beta %>%
   spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
@@ -117,27 +134,11 @@ mut_mod %>%
   cowplot::theme_minimal_grid(font_size = 14,
                               colour = "grey92")
 
-## Parameter fits and stats 
-
-mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
-
-## Spatial Autocorrelation test
-bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
-d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
-d_mat_inv <- 1/d_mat
-d_mat_inv[which(d_mat_inv == Inf)] <- 0
-Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 **NDSI_Bio - no effect of typhoon or land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 dat_pre<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Bio" & response_variable %in% 'Pre_mean') 
@@ -186,12 +187,13 @@ d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
+summary(mod_nonspatial_beta)
+
 ```
 
 **NDSI_Anthro - positive change after typhoon**
 
 ```{r}
-
 # get pre vs post data for comparison
 dat_pre<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Anth" & response_variable %in% 'Pre_mean') 
@@ -224,8 +226,25 @@ mcmc_plot(mod_nonspatial_beta, type = "dens_overlay") + theme_cowplot()
 # plot posterior estimates of fixed effects
 mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
 
-## typhoon has an effect ##
+## Parameter fits and stats 
+mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
+bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
+# simulate data from 500 random draws of posterior and compare it to observed data
+# the black line should run through the center of the blue lines
+pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
 
+## Spatial Autocorrelation test
+bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
+
+```
+
+Plot typhoon effect: 
+
+```{r}
 mut_mod<-mod_nonspatial_beta %>%
   spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
@@ -259,22 +278,6 @@ mut_mod %>%
        y = "Site") + 
   cowplot::theme_minimal_grid(font_size = 14,
                               colour = "grey92")
-
-## Parameter fits and stats 
-
-mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
-bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
-# simulate data from 500 random draws of posterior and compare it to observed data
-# the black line should run through the center of the blue lines
-pp_check(mod_nonspatial_beta, ndraws = 500) + theme_cowplot()
-
-## Spatial Autocorrelation test
-bres <- residuals(mod_nonspatial_beta)[,"Estimate"]
-d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance matrix 
-d_mat_inv <- 1/d_mat
-d_mat_inv[which(d_mat_inv == Inf)] <- 0
-Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 ## acoustic index temporal variability
@@ -318,7 +321,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -331,13 +333,11 @@ d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance 
 d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 **NDSI_Bio - no effect of typhoon or land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 dat_pre<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Bio" & response_variable %in% 'Pre_Var') 
@@ -373,7 +373,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -386,13 +385,11 @@ d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance 
 d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 **NDSI_Anthro - no effect of typhoon or land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 dat_pre<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Anth" & response_variable %in% 'Pre_Var') 
@@ -449,7 +446,6 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 **NDSI - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI" & response_variable %in% 'Resist') 
@@ -475,7 +471,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -494,7 +489,6 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 **NDSI_Bio - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Bio" & response_variable %in% 'Resist') 
@@ -520,7 +514,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -539,7 +532,6 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 **NDSI_Anthro - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Anth" & response_variable %in% 'Resist') 
@@ -565,7 +557,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -586,7 +577,6 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 **NDSI - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI" & response_variable %in% 'Recov') 
@@ -612,7 +602,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -631,7 +620,6 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 **NDSI_Bio - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Bio" & response_variable %in% 'Recov') 
@@ -657,7 +645,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -670,13 +657,11 @@ d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance 
 d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 **NDSI_Anthro - no effect of land use**
 
 ```{r}
-
 # get pre vs post data for comparison
 df<-tidy.stability_AI %>%
   filter(Index %in% "NDSI_Anth" & response_variable %in% 'Recov') 
@@ -703,7 +688,6 @@ mcmc_plot(mod_nonspatial_beta, type = "intervals",prob = 0.68, prob_outer = 0.95
 
 ## no effects ##
 ## Parameter fits and stats 
-
 mod_nonspatial_beta$fit # Rhat values closer to 1 and n_eff values > 1000 are ideal.
 bayes_R2(mod_nonspatial_beta) # pseudo r-squared of model
 # simulate data from 500 random draws of posterior and compare it to observed data
@@ -716,17 +700,15 @@ d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T)) # make distance 
 d_mat_inv <- 1/d_mat
 d_mat_inv[which(d_mat_inv == Inf)] <- 0
 Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
-
 ```
 
 ## acoustic index spatial variability
 
-Not using same Bayesian models for spatial variability here. Instead, using break-point models to see if spatial variability changes after typhoons, and whether values and value change differ by land use. NB: set break-points manually before and after typhoons, as this is _a priori_ expectation for break point locations (then compare model performance against linear model without breaks). 
+Not using same Bayesian models for spatial variability here. Instead, using break-point models to see if spatial variability changes after typhoons, and whether values and value change differ by land use. NB: set break-points manually before and after typhoons, as this is *a priori* expectation for break point locations (then compare model performance against linear model without breaks).
 
 **NDSI - typhoon x landuse interaction**
 
 ```{r}
-
 # prepare data
 df<-tidy.spatial_AI %>%
   filter(Index %in% "NDSI" & response_group %in% 'Total_var') # get pre vs post data for comparison
@@ -771,10 +753,9 @@ Break_results<-df %>%
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
@@ -870,10 +851,9 @@ Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(l
 Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
                   col = Landuse)) +
@@ -911,13 +891,11 @@ panel_b
 panel_a / panel_b
 ```
 
-
 For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
 
 **NDSI_Bio - Landuse x typhoon effect**
 
 ```{r}
-
 # prepare data
 df<-tidy.spatial_AI %>%
   filter(Index %in% "NDSI_Bio" & response_group %in% 'Total_var') # get pre vs post data for comparison
@@ -962,10 +940,9 @@ Break_results<-df %>%
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
@@ -1061,10 +1038,9 @@ Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(l
 Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
                   col = Landuse)) +
@@ -1102,11 +1078,9 @@ panel_b
 panel_a / panel_b
 ```
 
-
 **NDSI_Anthro - no effect**
 
 ```{r}
-
 # prepare data
 df<-tidy.spatial_AI %>%
   filter(Index %in% "NDSI_Anth" & response_group %in% 'Total_var') # get pre vs post data for comparison
@@ -1151,10 +1125,9 @@ Break_results<-df %>%
 Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
@@ -1252,10 +1225,9 @@ Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(l
 Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
                   col = Landuse)) +
@@ -1293,19 +1265,19 @@ panel_b
 panel_a / panel_b
 ```
 
-
 NB: model slopes differ slightly so Davies test is sig.
 
-NB: this is very reassuring - that what we're seeing in the spatial variability results is biotic and independent of background noise. If results weren't driven by site differences in biotic responses, we'd see them follow closely the overall trend like for Anthropophony. 
+NB: this is very reassuring - that what we're seeing in the spatial variability results is biotic and independent of background noise. If results weren't driven by site differences in biotic responses, we'd see them follow closely the overall trend like for Anthropophony.
 
 ### Bird detections
 
+NB: Bird detections were not made at every site, so the random site effect fills in the missing sites when constructing posterior draws etc. (we simply ignore those results from sites where detections were not observed).
+
 ## bird detection mean states
 
-**Total detections**
+**Total detections - species x typhoon effect**
 
 ```{r}
-
 dat_pre<-tidy.stability_bird %>%
   filter(Cutoff %in% 0.5 & response_variable %in% 'Pre_mean') 
 dat_post<-tidy.stability_bird %>%
@@ -1320,24 +1292,120 @@ df <- rbind(dat_pre, dat_post)
 df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
 df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
 
+df$Stability<-df$Stability+1 # try this to run lognormal model (cannot have zero values)
+
+# set weakly informative priors
+all_priors<-c(
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+
 # Fit bayesian mixed effects model
-mod_nonspatial_negb <- 
-  brm(data = df, family = negbinomial(),
+mod_nonspatial_log <- 
+  brm(data = df, family = lognormal(),
       round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
         Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
+      seed = 666, prior = all_priors)
 
-brms::mcmc_plot(mod_nonspatial_negb, type = "trace") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_log, type = "trace") + theme_cowplot()
 #check for agreement of chains
-brms::mcmc_plot(mod_nonspatial_negb, type = "dens_overlay") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_log, type = "dens_overlay") + theme_cowplot()
 # plot posterior probabilities
-brms::mcmc_plot(mod_nonspatial_negb, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
-pp_check(mod_nonspatial_negb, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
+brms::mcmc_plot(mod_nonspatial_log, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+pp_check(mod_nonspatial_log, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50)) # good fit to data
 
-## plot significant typhoon effect per species
+bayes_R2(mod_nonspatial_log)
+
+bres <- residuals(mod_nonspatial_log)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T))
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+ape::Moran.I(bres, d_mat_inv)
+
+summary(mod_nonspatial_log)
+```
+
+Plot main species effect:
+
+```{r}
+# Horornis #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_Species_IDHorornis_diphone, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_Species_IDHorornis_diphone + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+horornisplot <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","navajowhite")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (species effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+
+# Otus #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_Species_IDOtus_elegans, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_Species_IDOtus_elegans + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp)
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+otusplot <-mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","navajowhite")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (species effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+
+# plots #
+plot_grid(horornisplot, otusplot, 
+          ncol = 2, align = "hv", 
+          labels = c("Horonis", "Otus"))
+```
+
+Plot typhoon x species interaction:
+
+```{r}
 # Corvus #
-mut_mod<-mod_nonspatial_negb %>%
+mut_mod<-mod_nonspatial_log %>%
   spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1367,7 +1435,7 @@ corvusplot <- mut_mod %>%
   cowplot::theme_minimal_grid()
 
 # Horornis #
-mut_mod<-mod_nonspatial_negb %>%
+mut_mod<-mod_nonspatial_log %>%
   spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDHorornis_diphone`, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDHorornis_diphone` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1397,7 +1465,7 @@ horornisplot <- mut_mod %>%
   cowplot::theme_minimal_grid()
 
 # Otus #
-mut_mod<-mod_nonspatial_negb %>%
+mut_mod<-mod_nonspatial_log %>%
   spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDOtus_elegans`, r_Site_ID[Site_ID,]) %>%
   mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDOtus_elegans` + r_Site_ID) # get posterior distribution data for plotting
 mut_mod$sig<-0
@@ -1430,37 +1498,13 @@ otusplot <-mut_mod %>%
 plot_grid(corvusplot, horornisplot, otusplot, 
           ncol = 3, align = "hv", 
           labels = c("Corvus", "Horonis", "Otus"))
-
-bayes_R2(mod_nonspatial_negb)
-
-bres <- residuals(mod_nonspatial_negb)[,"Estimate"]
-d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T))
-d_mat_inv <- 1/d_mat
-d_mat_inv[which(d_mat_inv == Inf)] <- 0
-ape::Moran.I(bres, d_mat_inv)
-
-# good fit to data
-pp_check(mod_nonspatial_negb, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50))
-
 ```
-
-Why do the posterior draws come from all 24 sites when the different species were only in a subset (17, 11, and 7)???
-
-- Need to fix this. Could explain why the chains are a bit all over the place
-
-
-
-
-Any idea why Otus and Otus x landuse chains go crazy (numbers are insanely high) while everything else looks reasonable?
-
-
 
 ## bird detection temporal variability
 
-**Total detections**
+**Total detections - typhoon effect**
 
 ```{r}
-
 dat_pre<-tidy.stability_bird %>%
   filter(Cutoff %in% 0.5 & response_variable %in% 'Pre_Var') 
 dat_post<-tidy.stability_bird %>%
@@ -1475,36 +1519,84 @@ df <- rbind(dat_pre, dat_post)
 df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
 df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
 
+df$Stability<-df$Stability+1 # try this to run lognormal model (cannot have zero values)
+
+# set weakly informative priors
+all_priors<-c(
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+
 # Fit bayesian mixed effects model
-mod_nonspatial_lnorm <- 
-  brm(data = df, family = Beta(),
-      Stability ~ 1 + Landuse + Typhoon * Species_ID + (1|Site_ID),
+mod_nonspatial_log <- 
+  brm(data = df, family = lognormal(),
+      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
+        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
-      seed = 666)
-mod_nonspatial_lnorm <- add_criterion(mod_nonspatial_lnorm, "loo")
+      seed = 666, prior = all_priors)
 
-#check MCMC traces
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "trace") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_log, type = "trace") + theme_cowplot()
 #check for agreement of chains
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "dens_overlay") + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_log, type = "dens_overlay") + theme_cowplot()
 # plot posterior probabilities
-brms::mcmc_plot(mod_nonspatial_lnorm, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+brms::mcmc_plot(mod_nonspatial_log, type = "intervals",prob = 0.68, prob_outer = 0.95, variable = "^b_", regex = TRUE) + theme_cowplot()
+pp_check(mod_nonspatial_log, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,50)) # good fit to data
 
-## no significant effects
+bayes_R2(mod_nonspatial_log)
 
-# good fit to data
-pp_check(mod_nonspatial_lnorm, ndraws = 500) + theme_cowplot() +  scale_x_continuous(limits = c(0,10))
+bres <- residuals(mod_nonspatial_log)[,"Estimate"]
+d_mat = as.matrix(dist(df[,c("Lat", "Long")], diag=T, upper=T))
+d_mat_inv <- 1/d_mat
+d_mat_inv[which(d_mat_inv == Inf)] <- 0
+ape::Moran.I(bres, d_mat_inv)
 
+summary(mod_nonspatial_log)
 ```
 
-NB: Beta distribution seems to be a bit better - check data distribution
+Plot typhoon effect:
+
+```{r}
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","skyblue")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (typhoon effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+```
 
 ## bird detection spatial variability
 
 **bird detections - species effect**
 
 ```{r}
-
 # prepare data
 df<-tidy.spatial_bird %>%
   filter(response_group %in% 'Total_Var') # get pre vs post data for comparison
@@ -1561,10 +1653,9 @@ Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(l
 Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 Sp_labs<-c('C. macrorhynchos','H. diphone','O. elegans')
 names(Sp_labs)<-c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans')
 
@@ -1678,10 +1769,9 @@ Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor
 Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
 ```
 
-Plot results: 
+Plot results:
 
 ```{r}
-
 plot1<-df %>% ggplot(aes(x = Date,
                   y = Stability,
                   alpha = Species,
@@ -1727,28 +1817,227 @@ panel_b
 panel_a / panel_b
 ```
 
-** Do SAME BUT FOR DIFFERENT TIME HORIZONS BEFORE AND AFTER TYPHOONS - TO SHOW RESULTS DON'T DEPEND ON TIME BEFORE/AFTER TYPHOONS
-
-
+\*\* Do SAME BUT FOR DIFFERENT TIME HORIZONS BEFORE AND AFTER TYPHOONS - TO SHOW RESULTS DON'T DEPEND ON TIME BEFORE/AFTER TYPHOONS
 
 ### Figure S2
 
-Finally, we'll compare the different automatic filtering thresholds for species detection confidence. We'll filter the dataset by only those sites where we have detections for all 3 species (N = 7). 
+Finally, compare different automatic filtering thresholds for species detection confidence. Test the mean species effect on Horonis_diphone under three confidence thresholds. NB: to speed this up, we'll run 10x fewer iterations in the models. 
+
+**Threshold = 0.5 **
 
 ```{r}
+dat_pre<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.5 & response_variable %in% 'Pre_mean') 
+dat_post<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.5 & response_variable %in% 'Post_mean') 
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+df$Stability<-df$Stability+1 # try this to run lognormal model (cannot have zero values)
 
-# subset dataframe
-ext_chng_all<-tidy.stability_bird %>%
-  filter(Stability_dimension %in% 'Ext_Chng') 
+# set weakly informative priors
+all_priors<-c(
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
 
-ext_chng_all<-ext_chng_all %>% 
-  group_by(Site_ID) %>% 
-  filter(length(Stability_dimension) == 9)
+# Fit bayesian mixed effects model
+mod_nonspatial_log <- 
+  brm(data = df, family = lognormal(),
+      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
+        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
+      iter = 5e3, warmup = 500, chains = 4, cores = 4, thin = 2,
+      seed = 666, prior = all_priors)
 
-# convert to factor
-ext_chng_all$Site_ID<-ext_chng_all$Site_ID %>% parse_character() %>% parse_factor(ordered = T)
-ext_chng_all$Species_ID<-ext_chng_all$Species_ID %>% parse_character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
-ext_chng_all$Cutoff<-ext_chng_all$Cutoff %>% as.character() %>% parse_factor(ordered = T)
-ext_chng_all$p_sig<-ext_chng_all$p_sig %>% as.character() %>% parse_factor(levels = c('0','1'))
+summary(mod_nonspatial_log)
 
+#Plot - Horornis #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_Species_IDHorornis_diphone, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_Species_IDHorornis_diphone + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+Plot_50 <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","navajowhite")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (species effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+```
+
+**Threshold = 0.75 **
+
+```{r}
+dat_pre<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.75 & response_variable %in% 'Pre_mean') 
+dat_post<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.75 & response_variable %in% 'Post_mean') 
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+df$Stability<-df$Stability+1 # try this to run lognormal model (cannot have zero values)
+
+# set weakly informative priors
+all_priors<-c(
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+
+# Fit bayesian mixed effects model
+mod_nonspatial_log <- 
+  brm(data = df, family = lognormal(),
+      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
+        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
+      iter = 5e3, warmup = 500, chains = 4, cores = 4, thin = 2,
+      seed = 666, prior = all_priors)
+
+summary(mod_nonspatial_log)
+
+#Plot - Horornis #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_Species_IDHorornis_diphone, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_Species_IDHorornis_diphone + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+Plot_75 <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","navajowhite")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (species effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+```
+
+**Threshold = 0.9**
+
+```{r}
+dat_pre<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.9 & response_variable %in% 'Pre_mean') 
+dat_post<-tidy.stability_bird %>%
+  filter(Cutoff %in% 0.9 & response_variable %in% 'Post_mean') 
+dat_pre<-dat_pre[complete.cases(dat_pre),]
+dat_post<-dat_post[complete.cases(dat_post),]
+dat_pre$Typhoon = rep("Pre", nrow(dat_pre))
+dat_post$Typhoon = rep("Post", nrow(dat_post))
+df <- rbind(dat_pre, dat_post)
+# change levels for model
+df$Typhoon<-df$Typhoon %>% parse_character() %>% parse_factor(levels = c('Pre','Post'))
+df$Landuse<-df$Landuse %>% parse_character() %>% parse_factor(levels = c('Forest','Developed'))
+df$Stability<-df$Stability+1 # try this to run lognormal model (cannot have zero values)
+
+# set weakly informative priors
+all_priors<-c(
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+
+# Fit bayesian mixed effects model
+mod_nonspatial_log <- 
+  brm(data = df, family = lognormal(),
+      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
+        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
+      iter = 5e3, warmup = 500, chains = 4, cores = 4, thin = 2,
+      seed = 666, prior = all_priors)
+
+summary(mod_nonspatial_log)
+
+#Plot - Horornis #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_Species_IDHorornis_diphone, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_Species_IDHorornis_diphone + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+Plot_90 <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","navajowhite")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (species effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+```
+
+Compare plots:
+
+```{r}
+# plots #
+plot_grid(Plot_50, Plot_75, Plot_90, 
+          ncol = 3, align = "hv", 
+          labels = c("Threshold: 0.5", "Threshold: 0.75", "Threshold: 0.9"))
 ```
