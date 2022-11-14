@@ -191,6 +191,46 @@ summary(mod_nonspatial_beta)
 
 ```
 
+plot results:
+
+```{r}
+
+mut_mod<-mod_nonspatial_beta %>%
+  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
+
+# determine whether credible intervals span zero, and store as binary (to show in plot): 
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+}
+rm(temp)
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+
+# plot posterior typhoon effect
+mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","skyblue")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (typhoon effect)",
+       y = "Site") + 
+  cowplot::theme_minimal_grid(font_size = 14,
+                              colour = "grey92")
+
+```
+
 **NDSI_Anthro - positive change after typhoon**
 
 ```{r}
