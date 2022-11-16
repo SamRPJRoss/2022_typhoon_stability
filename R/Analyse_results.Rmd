@@ -931,8 +931,6 @@ panel_b
 panel_a / panel_b
 ```
 
-For axis legend: "dashed lines delineate the pre- and post-typhoon periods."
-
 **NDSI_Bio - Landuse x typhoon effect**
 
 ```{r}
