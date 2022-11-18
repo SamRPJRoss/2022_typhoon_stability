@@ -771,6 +771,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
@@ -861,6 +862,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,seg.Z = ~ date_for,
@@ -956,6 +958,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
@@ -1046,6 +1049,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,seg.Z = ~ date_for,
@@ -1141,6 +1145,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
@@ -1233,6 +1238,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,seg.Z = ~ date_for,
@@ -1669,6 +1675,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,seg.Z = ~ date_Corv,
@@ -1780,6 +1787,7 @@ os <- segmented(olm,
                 control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
 
 AIC(os,olm) # break point model performs better
+lmtest::lrtest(os,olm) # break point model performs better
 
 ## davies test of the change in slope after break points
 davies.test(olm,seg.Z = ~ date_Corv_for,
