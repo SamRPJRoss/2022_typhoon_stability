@@ -1348,13 +1348,14 @@ all_priors<-c(
   set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
   set_prior("normal(0, 2)",coef = "TyphoonPost"),
   set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
-  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost:Species_IDOtus_elegans"))
 
 # Fit bayesian mixed effects model
 mod_nonspatial_log <- 
   brm(data = df, family = lognormal(),
-      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
-        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
+      Stability ~ 1 + Landuse * Typhoon * Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666, prior = all_priors)
 
@@ -1575,13 +1576,14 @@ all_priors<-c(
   set_prior("normal(0, 2)",coef = "Species_IDOtus_elegans"),
   set_prior("normal(0, 2)",coef = "TyphoonPost"),
   set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDHorornis_diphone"),
-  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"))
+  set_prior("normal(0, 2)",coef = "TyphoonPost:Species_IDOtus_elegans"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost:Species_IDHorornis_diphone"),
+  set_prior("normal(0, 2)",coef = "LanduseDeveloped:TyphoonPost:Species_IDOtus_elegans"))
 
 # Fit bayesian mixed effects model
 mod_nonspatial_log <- 
   brm(data = df, family = lognormal(),
-      round(Stability) ~ 1 + Landuse + Typhoon + Species_ID + # used round() as poisson needs integers
-        Landuse:Typhoon + Landuse:Species_ID + Typhoon:Species_ID + (1|Site_ID),
+      Stability ~ 1 + Landuse * Typhoon * Species_ID + (1|Site_ID),
       iter = 5e4, warmup = 5000, chains = 4, cores = 4, thin = 2,
       seed = 666, prior = all_priors)
 
@@ -1635,6 +1637,106 @@ mut_mod %>%
        y = "") + 
   cowplot::theme_minimal_grid()
 ```
+
+Plot by species (for supplement):
+
+```{r}
+# Corvus #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_TyphoonPost, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp)
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+corvusplot <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","skyblue")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (typhoon effect)",
+       y = "Site") + 
+  cowplot::theme_minimal_grid()
+
+# Horornis #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDHorornis_diphone`, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDHorornis_diphone` + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp) 
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+horornisplot <- mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","skyblue")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (typhoon effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+
+# Otus #
+mut_mod<-mod_nonspatial_log %>%
+  spread_draws(b_TyphoonPost, `b_TyphoonPost:Species_IDOtus_elegans`, r_Site_ID[Site_ID,]) %>%
+  mutate(site_mean = b_TyphoonPost + `b_TyphoonPost:Species_IDOtus_elegans` + r_Site_ID) # get posterior distribution data for plotting
+mut_mod$sig<-0
+for (i in 1:length(unique(mut_mod$Site_ID))) {
+  temp<-mut_mod$site_mean[mut_mod$Site_ID %in% mut_mod$Site_ID[i]] %>% 
+    quantile(c(0.05,0.95)) %>% # get 95% credible intervals
+    sign() %>% # get sign of those intervals
+    duplicated() # are the signs identical (no = zero-spanning)
+  if(temp[2] %in% TRUE){ # if signs are identical (non-zero-spanning)
+    mut_mod$sig[mut_mod$Site_ID %in% mut_mod$Site_ID[i]]<-1 # add significance indicator
+  }
+} # determine whether credible intervals span zero, and store as binary (to show in plot): 
+rm(temp)
+mut_mod$sig<-mut_mod$sig %>% as.character() %>% parse_factor(levels = c('0','1')) # convert to factor
+otusplot <-mut_mod %>%
+  ggplot(aes(y = Site_ID %>% as.character %>% parse_factor(levels = Site_order), 
+             x = site_mean, 
+             fill = stat(x) > 0,
+             shape = sig)) + 
+  stat_halfeye(show.legend = F,slab_type = "pdf") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed") +
+  scale_fill_manual(values = c("gray80","skyblue")) +
+  scale_shape_manual(values = c(21,8)) +
+  labs(x = "Posterior draws (typhoon effect)",
+       y = "") + 
+  cowplot::theme_minimal_grid()
+
+# plots #
+plot_grid(corvusplot, horornisplot, otusplot, 
+          ncol = 3, align = "hv", 
+          labels = c("Corvus", "Horonis", "Otus"))
+```
+
 
 ## bird detection spatial variability
 
