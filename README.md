@@ -11,10 +11,47 @@ Data structure:
 
 _2022_Species_detections.rda_
 
+- Species_detections (dataframe of individual species detection events)
+-- Filename: Name of the file in which the detection occurs (format SITENAME_YYYYMMDD_hhmmss.wav). 
+-- Channel: Channel number from input file for stereo recording (0=left; 1=right).
+-- Offset: Time offset (in seconds) from the start of the recording (indicated by the filename, date, and time). 
+-- Duration: Duration (in seconds) of detected vocalisation.
+-- Fmin: Minimum frequency of detected vocalisation.
+-- Fmean: Mean frequency of detected vocalisation.
+-- Fmax: Maximum frequency of detected vocalisation.
+-- Date: Date in YYYY-MM-DD.
+-- Time: Time in hh:mm:ss.
+-- Hour: Hour in number format (0-23).
+-- Species_ID: Latin species name.
+-- Cluster_dist: Kaleidoscope Pro's certainty value (how close is this detection to a perfect match with the detection algorithm?).
+-- Vocalisations: Number of vocalisations detected at this time.
+-- Site_ID: Name of field site.
+-- Period: Delineation of typhoons in study period (Pre-typhoon; Trami; Post-trami; Kong-rey; Post-typhoon).
 
 
 _Acoustic_indices.rda_
 
+- Standardised_AIs (wide-format dataframe of standardised acoustic index values per .wav file)
+-- Filename: Name of the file in which the detection occurs (format SITENAME_YYYYMMDD_hhmmss.wav). 
+-- NDSI: Value of normalised difference soundscape index, standardised to (NDSI+1)/2.
+-- NDSI_Bio: Value of biophony, standardised as NDSI_Bio/max(NDSI_Bio) per site.
+-- NDSI_Anth: Value of anthropophony, standardised as NDSI_Anth/max(NDSI_Anth) per site.
+-- ADiv: Value of acoustic diversity, standardised as ADiv/max(ADiv) per site. [Not included in study].
+-- H: Value of temporal entropy, standardised as H/max(H) per site. [Not included in study].
+-- M: Value of median amplitude envelope, standardised as M/max(M) per site. [Not included in study].
+-- Date_Time: Date-time in YYYY-MM-DD hh:mm:ss.
+-- Period: Delineation of typhoons in study period (Pre-typhoon; Trami; Post-trami; Kong-rey; Post-typhoon).
+-- Date: Date in YYYY-MM-DD.
+-- Site_ID: Name of field site.
+
+- AIs_ma_3d (wide-format dataframe of 3-day detrended acoustic index values per .wav file)
+-- Data structure follows Standardised_AIs, but values are detrended with a 3-day moving average window.
+
+- AIs_ma_5d (wide-format dataframe of 5-day detrended acoustic index values per .wav file)
+-- Data structure follows Standardised_AIs, but values are detrended with a 5-day moving average window.
+
+- AIs_ma_7d (wide-format dataframe of 7-day detrended acoustic index values per .wav file)
+-- Data structure follows Standardised_AIs, but values are detrended with a 7-day moving average window.
 
 
 _all_landuse.rda_
@@ -32,6 +69,7 @@ _all_landuse.rda_
 -- MISC: Proportion of remaining land use classifications in 1000m buffer around field site.
 -- PC1: Principal Component Analysis Axis 1 value per field site.
 -- PC2: Principal Component Analysis Axis 2 value per field site.
+
 
 _Stability_Acoustic_Indices.rda_
 
@@ -76,6 +114,7 @@ _Stability_Acoustic_Indices.rda_
 -- Developed_Var: Value of spatial variability calculated across only the Developed sites.
 -- Period: Delineation of typhoons in study period (Pre-typhoon; Trami; Post-trami; Kong-rey; Post-typhoon).
 
+
 _Stability_Species_Detections.rda_
 
 - tidy.stability_bird (long-format tibble of bird detection stability values per site)
@@ -118,3 +157,6 @@ _Stability_Species_Detections.rda_
 -- Forest_Var: Value of spatial variability calculated across only the Forest sites.
 -- Developed_Var: Value of spatial variability calculated across only the Developed sites.
 -- Period: Delineation of typhoons in study period (Pre-typhoon; Trami; Post-trami; Kong-rey; Post-typhoon).
+
+
+<a href="https://zenodo.org/badge/latestdoi/546414759"><img src="https://zenodo.org/badge/546414759.svg" alt="DOI"></a>
