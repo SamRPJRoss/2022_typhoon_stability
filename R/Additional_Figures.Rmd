@@ -1,0 +1,505 @@
+---
+title: "Additional figures"
+author: "Samuel R.P-J. Ross"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+load(here("Data/Acoustic_Indices.rda"))
+load(here("Data/2022_Species_Detections.rda"))
+```
+
+This document is for making the additional Figures and analyses asked for by Reviewers during the review process. 
+
+**Note: must run Measure_stability.Rmd and Analyse_results.Rmd first.**
+
+# Pre-disturbance soundscapes
+
+First, make time series to characterise pre-typhoon soundscapes in each site, separated by forest vs developed sites and acoustic index.
+
+```{r}
+
+# filter and add land use
+Plot_dat1<-Standardised_AIs %>% filter(Period == "Pre-typhoon")
+Plot_dat1$Landuse[Plot_dat1$Site_ID %in% Sites_Forest]<-'Forest'
+Plot_dat1$Landuse[Plot_dat1$Site_ID %in% Sites_Developed]<-'Developed'
+Plot_dat1$Landuse<-Plot_dat1$Landuse %>% factor(levels = c('Forest','Developed'))
+
+# Aggregate to daily for easy plotting
+Mean_out<-aggregate(NDSI ~ Site_ID*Date, data = Plot_dat1, FUN = mean)
+Mean_out$Landuse[Mean_out$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out$Landuse[Mean_out$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out$Landuse<-Mean_out$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_out2<-aggregate(NDSI_Bio ~ Site_ID*Date, data = Plot_dat1, FUN = mean)
+Mean_out2$Landuse[Mean_out2$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out2$Landuse[Mean_out2$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out2$Landuse<-Mean_out2$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_out3<-aggregate(NDSI_Anth ~ Site_ID*Date, data = Plot_dat1, FUN = mean)
+Mean_out3$Landuse[Mean_out3$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out3$Landuse[Mean_out3$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out3$Landuse<-Mean_out3$Landuse %>% factor(levels = c('Forest','Developed'))
+
+# plot all sites separated by landuse
+Panel_a<-Mean_out %>% ggplot(aes(x = Date,
+                  y = NDSI,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_line(show.legend = F,alpha = 0.4) + 
+  labs(x = "Date (pre-typhoon)",
+       y = "Mean Daily NDSI") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+Panel_b<-Mean_out2 %>% ggplot(aes(x = Date,
+                  y = NDSI_Bio,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_line(show.legend = F,alpha = 0.4) + 
+  labs(x = "Date (pre-typhoon)",
+       y = "Mean Daily Biophony (NDSI_Bio)") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+Panel_c<-Mean_out3 %>% ggplot(aes(x = Date,
+                  y = NDSI_Anth,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_line(show.legend = F,alpha = 0.4) + 
+  labs(x = "Date (pre-typhoon)",
+       y = "Mean Daily Anthropophony (NDSI_Anthro)") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+```
+
+Plot as multi-panel:
+```{r}
+Panel_a/Panel_b/Panel_c
+```
+
+# Dawn Chorus
+
+Next, we'll aim to show that sampling just the dawn chorus isn't a big improvement on sampling the whole day. To do this we'll take daily averages and compare them to averages at only dawn per day. 
+
+```{r}
+
+library(dplyr)
+library(lubridate)
+
+Plot_dat1$Time <- as.POSIXct(Plot_dat1$Date_Time, format = "%Y-%m-%d %H:%M:%S")
+# isolate dawn period (sunrise around 6am, so take 5-7 as dawn chorus)
+Dawn<-Plot_dat1 %>% 
+  filter(hour(Time) >= 5, 
+         hour(Time) <= 6)
+  
+# get means of dawn chorus per day - NDSI
+Dawn_out<-semi_join(Mean_out, Dawn, 
+                    by = c("Site_ID", "Date"))
+Dawn_out$Dawn<-aggregate(NDSI ~ Site_ID*Date, data = Dawn, FUN = mean)[,3]
+
+# get means of dawn chorus per day - NDSI_Bio
+Dawn_out2<-semi_join(Mean_out2, Dawn, 
+                    by = c("Site_ID", "Date"))
+Dawn_out2$Dawn<-aggregate(NDSI_Bio ~ Site_ID*Date, data = Dawn, FUN = mean)[,3]
+
+# get means of dawn chorus per day - NDSI_Anth
+Dawn_out3<-semi_join(Mean_out3, Dawn, 
+                    by = c("Site_ID", "Date"))
+Dawn_out3$Dawn<-aggregate(NDSI_Anth ~ Site_ID*Date, data = Dawn, FUN = mean)[,3]
+
+```
+
+Now plot the correlation between daily means and dawn chorus means: 
+
+```{r}
+
+Panel_a<-Dawn_out %>% ggplot(aes(x = Dawn,
+                  y = NDSI,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_point(show.legend = F,alpha = 0.4) + 
+  geom_smooth(se = F,method = "lm",show.legend = F) +
+  labs(x = "Mean Daily NDSI (Dawn)",
+       y = "Mean Daily NDSI") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+Panel_b<-Dawn_out2 %>% ggplot(aes(x = Dawn,
+                  y = NDSI_Bio,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_point(show.legend = F,alpha = 0.4) + 
+  geom_smooth(se = F,method = "lm",show.legend = F) +
+  labs(x = "Mean Daily NDSI_Bio (Dawn)",
+       y = "Mean Daily NDSI_Bio") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+Panel_c<-Dawn_out3 %>% ggplot(aes(x = Dawn,
+                  y = NDSI_Anth,
+                  col = Landuse, 
+                  group = Site_ID)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_point(show.legend = F,alpha = 0.4) + 
+  geom_smooth(se = F,method = "lm",show.legend = F) +
+  labs(x = "Mean Daily NDSI_Anthro (Dawn)",
+       y = "Mean Daily NDSI_Anthro") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+```
+
+Plot as multi-panel:
+```{r}
+Panel_a/Panel_b/Panel_c
+```
+
+# Response pathways
+
+Next, make a figure showing the variation in possible response pathways. We can do this by taking the derivatives of the time series to show how acoustic index values change over time. 
+
+```{r}
+
+# get data and add land use
+Plot_dat2<-Standardised_AIs
+Plot_dat2$Landuse[Plot_dat2$Site_ID %in% Sites_Forest]<-'Forest'
+Plot_dat2$Landuse[Plot_dat2$Site_ID %in% Sites_Developed]<-'Developed'
+Plot_dat2$Landuse<-Plot_dat2$Landuse %>% factor(levels = c('Forest','Developed'))
+Plot_dat2$Date<-as.numeric(Plot_dat2$Date)
+Plot_dat2$Date<-Plot_dat2$Date-(min(Plot_dat2$Date)-1)
+
+# Aggregate to daily for easy plotting
+Mean_out<-aggregate(NDSI ~ Site_ID*Date, data = Plot_dat2, FUN = mean)
+Mean_out$Landuse[Mean_out$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out$Landuse[Mean_out$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out$Landuse<-Mean_out$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_out2<-aggregate(NDSI_Bio ~ Site_ID*Date, data = Plot_dat2, FUN = mean)
+Mean_out2$Landuse[Mean_out2$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out2$Landuse[Mean_out2$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out2$Landuse<-Mean_out2$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_out3<-aggregate(NDSI_Anth ~ Site_ID*Date, data = Plot_dat2, FUN = mean)
+Mean_out3$Landuse[Mean_out3$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_out3$Landuse[Mean_out3$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_out3$Landuse<-Mean_out3$Landuse %>% factor(levels = c('Forest','Developed'))
+
+```
+
+First model daily values as a function of time:
+
+```{r}
+
+library(mgcv)
+
+# Create a list to store the GAM models and data for each site
+gam_data_list <- list()
+
+# Get unique Site_ID values
+site_ids <- unique(Mean_out$Site_ID)
+
+# Loop through each site and fit a GAM model
+for (site_id in site_ids) {
+  
+  # Subset the data for the current site
+  site_data <- Mean_out[Mean_out$Site_ID == site_id, ]
+  
+  # Fit the GAM model for the current site
+  gam_model <- gam(NDSI ~ s(Date), data = site_data)
+  
+  # Store the GAM model and data in the list
+  gam_data_list[[site_id]] <- list(model = gam_model, data = site_data)
+}
+
+```
+
+Then we calculate the first derivatives of these relationships.
+
+```{r}
+
+library(gratia)
+
+# Create a list to store the derivatives for each site
+derivatives_list <- list()
+
+# Loop through each site in gam_data_list
+for (site_id in names(gam_data_list)) {
+  
+  # Get the GAM model for the current site
+  gam_model <- gam_data_list[[site_id]]$model
+  
+  # Calculate the derivatives
+  derivatives <- derivatives(gam_model, which = "s(Date)")
+  
+  # Store the derivatives in the list
+  derivatives_list[[site_id]] <- derivatives
+}
+
+# store site names
+names(derivatives_list)<-site_ids
+
+# unlist into a single dataframe
+derivatives_df <- bind_rows(derivatives_list, .id = "Site_ID")
+
+# add land use
+derivatives_df$Landuse[derivatives_df$Site_ID %in% Sites_Forest]<-'Forest'
+derivatives_df$Landuse[derivatives_df$Site_ID %in% Sites_Developed]<-'Developed'
+derivatives_df$Landuse<-derivatives_df$Landuse %>% factor(levels = c('Forest','Developed'))
+
+```
+
+Plot results for NDSI:
+
+```{r}
+
+Panel_a<-derivatives_df %>% ggplot(mapping = aes(x = data,
+                                        y = derivative,
+                                        group = Site_ID,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_line(alpha = 0.4,show.legend = F) +
+  labs(x = "Date",
+       y = "Derivative (NDSI)") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+```
+
+Now the same for NDSI_Bio:
+
+```{r}
+
+# Create a list to store the GAM models and data for each site
+gam_data_list <- list()
+
+# Get unique Site_ID values
+site_ids <- unique(Mean_out2$Site_ID)
+
+# Loop through each site and fit a GAM model
+for (site_id in site_ids) {
+  
+  # Subset the data for the current site
+  site_data <- Mean_out2[Mean_out2$Site_ID == site_id, ]
+  
+  # Fit the GAM model for the current site
+  gam_model <- gam(NDSI_Bio ~ s(Date), data = site_data)
+  
+  # Store the GAM model and data in the list
+  gam_data_list[[site_id]] <- list(model = gam_model, data = site_data)
+}
+
+# Create a list to store the derivatives for each site
+derivatives_list <- list()
+
+# Loop through each site in gam_data_list
+for (site_id in names(gam_data_list)) {
+  
+  # Get the GAM model for the current site
+  gam_model <- gam_data_list[[site_id]]$model
+  
+  # Calculate the derivatives
+  derivatives <- derivatives(gam_model, which = "s(Date)")
+  
+  # Store the derivatives in the list
+  derivatives_list[[site_id]] <- derivatives
+}
+
+# store site names
+names(derivatives_list)<-site_ids
+
+# unlist into a single dataframe
+derivatives_df2 <- bind_rows(derivatives_list, .id = "Site_ID")
+
+# add land use
+derivatives_df2$Landuse[derivatives_df2$Site_ID %in% Sites_Forest]<-'Forest'
+derivatives_df2$Landuse[derivatives_df2$Site_ID %in% Sites_Developed]<-'Developed'
+derivatives_df2$Landuse<-derivatives_df2$Landuse %>% factor(levels = c('Forest','Developed'))
+
+```
+
+```{r}
+
+Panel_b<-derivatives_df2 %>% ggplot(mapping = aes(x = data,
+                                        y = derivative,
+                                        group = Site_ID,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_line(alpha = 0.4,show.legend = F) +
+  labs(x = "Date",
+       y = "Derivative (NDSI_Bio)") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+```
+
+Now the same for NDSI_Anthro:
+
+```{r}
+
+# Create a list to store the GAM models and data for each site
+gam_data_list <- list()
+
+# Get unique Site_ID values
+site_ids <- unique(Mean_out3$Site_ID)
+
+# Loop through each site and fit a GAM model
+for (site_id in site_ids) {
+  
+  # Subset the data for the current site
+  site_data <- Mean_out3[Mean_out3$Site_ID == site_id, ]
+  
+  # Fit the GAM model for the current site
+  gam_model <- gam(NDSI_Anth ~ s(Date), data = site_data)
+  
+  # Store the GAM model and data in the list
+  gam_data_list[[site_id]] <- list(model = gam_model, data = site_data)
+}
+
+# Create a list to store the derivatives for each site
+derivatives_list <- list()
+
+# Loop through each site in gam_data_list
+for (site_id in names(gam_data_list)) {
+  
+  # Get the GAM model for the current site
+  gam_model <- gam_data_list[[site_id]]$model
+  
+  # Calculate the derivatives
+  derivatives <- derivatives(gam_model, which = "s(Date)")
+  
+  # Store the derivatives in the list
+  derivatives_list[[site_id]] <- derivatives
+}
+
+# store site names
+names(derivatives_list)<-site_ids
+
+# unlist into a single dataframe
+derivatives_df3 <- bind_rows(derivatives_list, .id = "Site_ID")
+
+# add land use
+derivatives_df3$Landuse[derivatives_df3$Site_ID %in% Sites_Forest]<-'Forest'
+derivatives_df3$Landuse[derivatives_df3$Site_ID %in% Sites_Developed]<-'Developed'
+derivatives_df3$Landuse<-derivatives_df3$Landuse %>% factor(levels = c('Forest','Developed'))
+
+```
+
+```{r}
+
+Panel_c<-derivatives_df3 %>% ggplot(mapping = aes(x = data,
+                                        y = derivative,
+                                        group = Site_ID,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_line(alpha = 0.4,show.legend = F) +
+  labs(x = "Date",
+       y = "Derivative (NDSI_Anthro)") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+
+```
+
+Plot as multi-panel:
+```{r}
+Panel_a/Panel_b/Panel_c
+```
+
+To put this into context, get the mean derivative values after the typhoons and compare between forest and developed sites: 
+
+```{r}
+
+# subset to only post-typhoon period
+derivatives_df<-derivatives_df %>% subset(derivatives_df$data >= 37)
+derivatives_df2<-derivatives_df2 %>% subset(derivatives_df2$data >= 37)
+derivatives_df3<-derivatives_df3 %>% subset(derivatives_df3$data >= 37)
+
+# get mean values of derivatives per site
+Mean_deriv<-aggregate(derivative ~ Site_ID, data = derivatives_df, FUN = mean)
+Mean_deriv$Landuse[Mean_deriv$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_deriv$Landuse[Mean_deriv$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_deriv$Landuse<-Mean_deriv$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_deriv2<-aggregate(derivative ~ Site_ID, data = derivatives_df2, FUN = mean)
+Mean_deriv2$Landuse[Mean_deriv2$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_deriv2$Landuse[Mean_deriv2$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_deriv2$Landuse<-Mean_deriv2$Landuse %>% factor(levels = c('Forest','Developed'))
+
+Mean_deriv3<-aggregate(derivative ~ Site_ID, data = derivatives_df3, FUN = mean)
+Mean_deriv3$Landuse[Mean_deriv3$Site_ID %in% Sites_Forest]<-'Forest'
+Mean_deriv3$Landuse[Mean_deriv3$Site_ID %in% Sites_Developed]<-'Developed'
+Mean_deriv3$Landuse<-Mean_deriv3$Landuse %>% factor(levels = c('Forest','Developed'))
+
+```
+
+Plot as boxplots:
+
+```{r}
+
+Panel_a<-Mean_deriv %>% ggplot(mapping = aes(x = Landuse,
+                                        y = derivative,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Mean Post-typhoon Derivative (NDSI)") + 
+  theme_cowplot(12)
+
+Panel_b<-Mean_deriv2 %>% ggplot(mapping = aes(x = Landuse,
+                                        y = derivative,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Mean Post-typhoon Derivative (NDSI_Bio)") + 
+  theme_cowplot(12)
+
+Panel_c<-Mean_deriv3 %>% ggplot(mapping = aes(x = Landuse,
+                                        y = derivative,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_hline(yintercept = 0, lty = 2) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Mean Post-typhoon Derivative (NDSI_Anthro)") + 
+  theme_cowplot(12)
+```
+
+Plot as multi-panel:
+```{r}
+Panel_a/Panel_b/Panel_c
+```
+
+# H. diphone declines
+
+Here, we aim to show the declines of H. diphone as time series, so as to potentially better demonstrate that these declines aren't likely caused by seasonality. 
+
+
+
+
+
+
+
+
