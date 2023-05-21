@@ -422,6 +422,194 @@ Plot as multi-panel:
 Panel_a/Panel_b/Panel_c
 ```
 
+Also measure Response Diversity using 2 metrics in Ross et al. (2023, Methods Ecol. Evol.) for each time point separated by land use:
+
+```{r}
+
+## calculate the diversity metrics - NDSI
+summary_stats <- derivatives_df %>%
+  group_by(Landuse, data) %>%
+  summarise(dissimilarity = resp_div(derivative,sign_sens = FALSE),
+            divergence = resp_div(derivative,sign_sens = TRUE)) 
+summary_stats<-summary_stats[complete.cases(summary_stats),] # remove incomplete cases
+colnames(summary_stats)[2]<-"Time"
+
+## calculate the diversity metrics - NDSI_Bio
+summary_stats2 <- derivatives_df2 %>%
+  group_by(Landuse, data) %>%
+  summarise(dissimilarity = resp_div(derivative,sign_sens = FALSE),
+            divergence = resp_div(derivative,sign_sens = TRUE)) 
+summary_stats2<-summary_stats2[complete.cases(summary_stats2),] # remove incomplete cases
+colnames(summary_stats2)[2]<-"Time"
+
+## calculate the diversity metrics - NDSI_Anthro
+summary_stats3 <- derivatives_df3 %>%
+  group_by(Landuse, data) %>%
+  summarise(dissimilarity = resp_div(derivative,sign_sens = FALSE),
+            divergence = resp_div(derivative,sign_sens = TRUE)) 
+summary_stats3<-summary_stats3[complete.cases(summary_stats3),] # remove incomplete cases
+colnames(summary_stats3)[2]<-"Time"
+```
+
+Plot response diversity time series: 
+
+```{r}
+
+Panel_a<-summary_stats %>% ggplot(mapping = aes(x = Time,
+                                        y = dissimilarity,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Dissimilarity (NDSI)") + 
+  theme_cowplot(12)
+
+Panel_b<-summary_stats %>% ggplot(mapping = aes(x = Time,
+                                        y = divergence,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Divergence (NDSI)") + 
+  theme_cowplot(12)
+
+Panel_c<-summary_stats2 %>% ggplot(mapping = aes(x = Time,
+                                        y = dissimilarity,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Dissimilarity (NDSI_Bio)") + 
+  theme_cowplot(12)
+
+Panel_d<-summary_stats2 %>% ggplot(mapping = aes(x = Time,
+                                        y = divergence,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Divergence (NDSI_Bio)") + 
+  theme_cowplot(12)
+
+Panel_e<-summary_stats3 %>% ggplot(mapping = aes(x = Time,
+                                        y = dissimilarity,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Dissimilarity (NDSI_Anthro)") + 
+  theme_cowplot(12)
+
+Panel_f<-summary_stats3 %>% ggplot(mapping = aes(x = Time,
+                                        y = divergence,
+                                        group = Landuse,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = 30,lty = 2) +
+  geom_vline(xintercept = 37,lty = 2) +
+  geom_line(alpha = 0.8,show.legend = F) +
+  labs(x = "Date",
+       y = "Divergence (NDSI_Anthro)") + 
+  theme_cowplot(12)
+
+```
+
+
+```{r}
+(Panel_a+Panel_b)/(Panel_c+Panel_d)/(Panel_e+Panel_f)
+```
+
+Plot boxplot summaries of post-typhoon response diversity:
+
+```{r}
+# subset to only post-typhoon period
+summary_stats<-summary_stats %>% subset(summary_stats$Time >= 37)
+summary_stats2<-summary_stats2 %>% subset(summary_stats2$Time >= 37)
+summary_stats3<-summary_stats3 %>% subset(summary_stats3$Time >= 37)
+
+# plot boxplots of response diversity values
+Panel_a<-summary_stats %>% ggplot(mapping = aes(x = Landuse,
+                                       y = dissimilarity,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Dissimilarity (NDSI)") + 
+  theme_cowplot(12)
+
+Panel_b<-summary_stats %>% ggplot(mapping = aes(x = Landuse,
+                                       y = divergence,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Divergence (NDSI)") + 
+  theme_cowplot(12)
+
+Panel_c<-summary_stats2 %>% ggplot(mapping = aes(x = Landuse,
+                                       y = dissimilarity,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Dissimilarity (NDSI_Bio)") + 
+  theme_cowplot(12)
+
+Panel_d<-summary_stats2 %>% ggplot(mapping = aes(x = Landuse,
+                                       y = divergence,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Divergence (NDSI_Bio)") + 
+  theme_cowplot(12)
+
+Panel_e<-summary_stats3 %>% ggplot(mapping = aes(x = Landuse,
+                                       y = dissimilarity,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Dissimilarity (NDSI_Anthro)") + 
+  theme_cowplot(12)
+
+Panel_f<-summary_stats3 %>% ggplot(mapping = aes(x = Landuse,
+                                       y = divergence,
+                                    fill = Landuse)) +
+  scale_fill_manual(values = c("#29a62b","#a629a4")) +
+  geom_jitter(alpha = 0.4,show.legend = F) + 
+  geom_boxplot(alpha = 0.4,show.legend = F) +
+  labs(x = "Land use",
+       y = "Post-typhoon Divergence (NDSI_Anthro)") + 
+  theme_cowplot(12)
+```
+
+```{r}
+(Panel_a+Panel_b)/(Panel_c+Panel_d)/(Panel_e+Panel_f)
+```
+
+
+
 To put this into context, get the mean derivative values after the typhoons and compare between forest and developed sites: 
 
 ```{r}
