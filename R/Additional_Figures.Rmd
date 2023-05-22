@@ -684,10 +684,56 @@ Panel_a/Panel_b/Panel_c
 
 Here, we aim to show the declines of H. diphone as time series, so as to potentially better demonstrate that these declines aren't likely caused by seasonality. 
 
+```{r}
+# generate dataframe
+Daily_species<-data.frame('Site_ID'=rep(unique(Species_detections$Site_ID), # repeat sites
+                                        each=67*3), # 67 days x 3 species
+                          'Species_ID'=rep(rep(unique(Species_detections$Species_ID),each=67),22),
+                          'Date' = rep(seq(as.Date(min(unique(Species_detections$Date))),
+                                           as.Date(max(unique(Species_detections$Date))),"days"),
+                                       22*3), # 22 sites x 3 species
+                          'Detect.Num' = NA, 'Cutoff' = NA, 'Period' = NA)
 
+Daily_species<-Daily_species %>% typhoon.period() # get typhoon periods
 
+Daily_species<-rbind(Daily_species,Daily_species,Daily_species)
+Daily_species$Cutoff<-c(0.5,0.75,0.9) %>% rep(each = Daily_species %>% nrow()/3) # get cutoff values
 
+## subset to 0.5 cutoff and H. diphone only
+Daily_Horornis<-Daily_species %>% subset(Species_ID %in% 'Horornis_diphone' &
+                         Cutoff == 0.5)
 
+# get daily detections
+for (i in 1:length(Daily_Horornis$Site_ID)) {
+  Daily_Horornis$Detect.Num[i]<-Species_detections$Filename[Species_detections$Site_ID %in% Daily_Horornis$Site_ID[i] & 
+                                                           Species_detections$Species_ID %in% Daily_Horornis$Species_ID[i] & 
+                                                           Species_detections$Date %in% Daily_Horornis$Date[i] & 
+                                                           Species_detections$Cluster_dist <= Daily_Horornis$Cutoff[i]] %>% length()
+}
+rm(i)
 
+# add landuse for plotting
+Daily_Horornis$Landuse[Daily_Horornis$Site_ID %in% Sites_Forest]<-'Forest'
+Daily_Horornis$Landuse[Daily_Horornis$Site_ID %in% Sites_Developed]<-'Developed'
+Daily_Horornis$Landuse<-Daily_Horornis$Landuse %>% factor(levels = c('Forest','Developed'))
 
+```
 
+Plot time series of detections as above: 
+
+```{r}
+Daily_Horornis %>% ggplot(mapping = aes(x = Date,
+                                        y = Detect.Num,
+                                        group = Site_ID,
+                                        col = Landuse)) +
+  scale_colour_manual(values = c("#29a62b","#a629a4")) +
+  geom_vline(xintercept = Daily_Horornis$Date[Daily_Horornis$Period %in% "Trami"][1],lty = 4) +
+  geom_vline(xintercept = Daily_Horornis$Date[Daily_Horornis$Period %in% "Kong-Rey"][1],lty = 4) +
+  geom_line(alpha = 0.4,show.legend = F) +
+  labs(x = "Date",
+       y = "Daily H. diphone detections") + 
+  theme_cowplot(12) +
+  facet_grid(. ~ Landuse)
+```
+
+We see that when the typhoons hit there is a very direct decline in species vocalisation detections. 
