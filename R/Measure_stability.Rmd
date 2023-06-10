@@ -658,6 +658,7 @@ for (i in 1:length(unique(AI_Spatial_Var$Date_Time))) { # for each time point
   }
 }
 rm(i,j)
+beepr::beep(sound = 3)
 ```
 
 ## Standardise and tidy data
@@ -707,6 +708,7 @@ colnames(wide.spatial_AI)[3]<-"Total_var"
 tidy.spatial_AI<-wide.spatial_AI %>% gather(key = response_group,
                                             value = Stability,
                                             na.rm = F,-Date_Time,-Index,-Period) # convert to long format (melted)
+#setwd("~/Documents/GitHub/2022_typhoon_stability/Data")
 #save(list = c('wide.stability_AI','tidy.stability_AI','wide.spatial_AI','tidy.spatial_AI'),file = 'Stability_Acoustic_Indices.rda')
 #rm(Standard_stability,tidy.spatial_AI,tidy.stability_AI,wide.spatial_AI,wide.stability_AI,AI_stability,AI_Spatial_Var,AIs_ma_3d,Baseline)
 ```
@@ -876,7 +878,6 @@ rm(i,j)
 
 Calculate spatial variability among land use classes individually (forest vs developed).
 
-
 ```{r}
 for (i in 1:length(unique(Sp_Spatial_Var$Date))) { # for each time point
   for (j in 1:3) { # and each species
@@ -948,6 +949,7 @@ tidy.spatial_bird<-wide.spatial_bird %>% gather(key = response_group,
                                             value = Stability,
                                             na.rm = F,-Date,-Species,-Period) # convert to long format (melted)
 
+#setwd("~/Documents/GitHub/2022_typhoon_stability/Data")
 #save(list = c('wide.stability_bird','tidy.stability_bird','wide.spatial_bird','tidy.spatial_bird'),file = 'Stability_Species_Detections.rda')
 #rm(Daily_species,Daily_species2,Detection_stability,Sp_Spatial_Var,Species_detections,tidy.spatial_bird,wide.spatial_bird,tidy.stability_bird,wide.stability_bird)
 ```

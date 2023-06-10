@@ -26,6 +26,10 @@ library(stringr)
 library(forcats)
 #library(simpleboot)
 library(segmented)
+library(mcp)
+library(rjags)
+library(EnvCpt)
+library(lubridate)
 
 # get data
 load(here("Data/Stability_Acoustic_Indices.rda"))
@@ -1740,75 +1744,191 @@ plot_grid(corvusplot, horornisplot, otusplot,
 
 ## bird detection spatial variability
 
-**bird detections - species effect**
+Make Bayesian change-point model per species and habitat combination. For each one, compare zero change points (no typhoon effect), 2 breaks (approx. typhoon effects, weak priors), and 3rd change point (following acoustic index results).
+
+## Total spatial variability 
 
 ```{r}
-# prepare data
-df<-tidy.spatial_bird %>%
-  filter(response_group %in% 'Total_Var') # get pre vs post data for comparison
-df2<-df
-df2$Date<-df2$Date %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df2$Date<-df2$Date - min(df2$Date) # scale date to start at zero for model
+### Corvus macrorhynchos - No change points
+df =tidy.spatial_bird %>% filter(Species == "Corvus_macrorhynchos" & response_group == "Total_Var")
 
-# split out time series for each species class separately
-temp<-model.matrix(~ 0 + df2$Species)*df2$Date
-date_Corv<-temp[,1]
-date_Horo<-temp[,2]
-date_Otus<-temp[,3]
-rm(temp)
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
 
-#hist(df$Stability) # looks lognormal
-olm<-glm(Stability ~ 0 + Species + date_Corv + date_Horo + date_Otus,
-         data = df2,family = gaussian(link = 'log')) # linear model
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
-summary(olm)
-#plot(olm)
+# set approx. break points at typhoon levels
+psis = c(30, 37)
 
-# get break points
-Psi_1<-df$Date[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
-Psi_2<-df$Date[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
 
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_Corv + date_Horo + date_Otus, # which variables to break
-                psi = list(date_Corv=c(Psi_1,Psi_2),
-                           date_Horo=c(Psi_1,Psi_2),
-                           date_Otus=c(Psi_1,Psi_2)),
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
 
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
 
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_Corv,
-            values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_Horo,
-            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-davies.test(olm,seg.Z = ~ date_Otus,
-            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
 
-summary(os)
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
 
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Species,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp0 best - no change points
+
+plot(fit_mcp0) + geom_vline(xintercept = psis)
+
+
+### Horornis diphone - One change point
+df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Total_Var")
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp1 best - one change point
+
+plot(fit_mcp1) + geom_vline(xintercept = psis)
+
+### Otus elegans - One change point
+df =tidy.spatial_bird %>% filter(Species == "Otus_elegans" & response_group == "Total_Var")
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp0 best - no change point
+
+plot(fit_mcp0) + geom_vline(xintercept = psis)
+
 ```
 
 Plot results:
 
 ```{r}
+df<-tidy.spatial_bird %>% filter(response_group == "Total_Var")
 Sp_labs<-c('C. macrorhynchos','H. diphone','O. elegans')
 names(Sp_labs)<-c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans')
 
-plot1<-df %>% ggplot(aes(x = Date,
+df %>% ggplot(aes(x = Date,
                   y = Stability,
-#                  alpha = Species,
                   col = Species)) +
   scale_alpha_manual(values = c(1,0.6,0.3)) +
   scale_linetype_manual(values = c(1,2,4)) +
@@ -1821,30 +1941,194 @@ plot1<-df %>% ggplot(aes(x = Date,
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
-
-plot2<-Break_results %>% ggplot(aes(x = Species,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  col = Species,
-                  shape = Period)) +
-#  scale_alpha_manual(values = c(1,0.6,0.3)) +
-  scale_colour_manual(values = c("gray80","skyblue","navajowhite")) + 
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Species",
-       y = element_blank()) + 
-  scale_x_discrete(labels = Sp_labs) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_a
 ```
 
 Now check for landuse effect:
+
+## Forest spatial variability 
+
+```{r}
+### Corvus macrorhynchos - 1 change point
+df =tidy.spatial_bird %>% filter(Species == "Corvus_macrorhynchos" & response_group == "Forest_Var")
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp1 most parsimonious - 1 change point
+
+plot(fit_mcp1) + geom_vline(xintercept = psis)
+
+
+### Horornis diphone - One change point
+df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Forest_Var")
+df<-df[complete.cases(df),]
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp1 best - one change point
+
+plot(fit_mcp2) + geom_vline(xintercept = psis)
+
+
+### Otus elegans - One change point
+df =tidy.spatial_bird %>% filter(Species == "Otus_elegans" & response_group == "Forest_Var")
+df<-df[complete.cases(df),]
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp0 best - no change point
+
+plot(fit_mcp0) + geom_vline(xintercept = psis)
+
+```
+
+
+
+
+
+
+
+
 
 ```{r}
 # prepare data
