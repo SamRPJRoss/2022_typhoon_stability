@@ -748,60 +748,236 @@ Moran.I(bres, d_mat_inv) # non-significant = no spatial autocorrelation
 
 ## acoustic index spatial variability
 
-Not using same Bayesian models for spatial variability here. Instead, using break-point models to see if spatial variability changes after typhoons, and whether values and value change differ by land use. NB: set break-points manually before and after typhoons, as this is *a priori* expectation for break point locations (then compare model performance against linear model without breaks).
 
-**NDSI - typhoon x landuse interaction**
+Make Bayesian change-point model per species and habitat combination. For each one, compare zero change points (no typhoon effect), 2 breaks (approx. typhoon effects, weak priors), and 3rd change point (following acoustic index results).
+
+*NDSI*
 
 ```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & response_group %in% 'Total_var') # get pre vs post data for comparison
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df =tidy.spatial_AI %>% filter(Index == "NDSI" & response_group == "Total_var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
 df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Date_Time,data = df2) # linear model
-summary(olm)
-#plot(olm)
+# get predicted breakpoint locations
+psis = c(271, 278)
 
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ Date_Time, # which variables to break
-                psi = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
 
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
 
-## davies test of the change in slope after break points
-davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # break after typhoons
-summary(os)
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
 
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
 
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+```
+
+Test for land use effects: 
+
+```{r}
+
+## Forest sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI" & response_group == "Forest_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+
+## Developed sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI" & response_group == "Developed_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
 ```
 
 Plot results:
 
 ```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+df =tidy.spatial_AI %>% filter(Index == "NDSI" & response_group == "Total_var")
+
+panel_a<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
@@ -812,97 +988,12 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
 
-plot2<-Break_results %>% ggplot(aes(x = Period,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  shape = Period)) +
-  geom_pointrange(fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Time period",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
+df<-tidy.spatial_AI %>% filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var')) 
+df$response_group<-df$response_group %>% as.character() %>% parse_factor(levels = c('Forest_Var','Developed_Var'))
 
-panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_a
-```
-
-Now check for landuse effect:
-
-```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
-
-# split out time series for each land use class separately
-temp<-model.matrix(~ 0 + df2$Landuse)*df2$Date_Time
-date_for<-temp[,1]
-date_dev<-temp[,2]
-rm(temp)
-
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df2) # linear model
-
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_for + date_dev, # which variables to break
-                psi = list(date_for=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                  date_dev=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
-
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
-
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_for,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_dev,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of developed sites
-summary(os)
-
-
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
-
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Landuse,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-```
-
-Plot results:
-
-```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+panel_b<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
-                  col = Landuse)) +
+                  col = response_group)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
@@ -912,410 +1003,525 @@ plot1<-df %>% ggplot(aes(x = Date_Time,
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
-
-plot2<-Break_results %>% ggplot(aes(x = Landuse,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  col = Landuse,
-                  shape = Period)) +
-  scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Landuse",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_b
 ```
 
 ```{r}
 panel_a / panel_b
 ```
 
-**NDSI_Bio - Landuse x typhoon effect**
+*NDSI_Bio*
 
 ```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Bio" & response_group %in% 'Total_var') # get pre vs post data for comparison
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Bio" & response_group == "Total_var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
 df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Date_Time,data = df2) # linear model
-summary(olm)
-#plot(olm)
+# get predicted breakpoint locations
+psis = c(271, 278)
 
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ Date_Time, # which variables to break
-                psi = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
 
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
 
-## davies test of the change in slope after break points
-davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # break after typhoons
-summary(os)
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
 
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
 
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+```
+
+Test for land use effects: 
+
+```{r}
+
+## Forest sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Bio" & response_group == "Forest_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+
+## Developed sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Bio" & response_group == "Developed_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
 ```
 
 Plot results:
 
 ```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Bio" & response_group == "Total_var")
+
+panel_a<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = expression(paste("NDSI"["Bio"]," spatial variability"))) + 
+       y = "Biophony spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
 
-plot2<-Break_results %>% ggplot(aes(x = Period,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  shape = Period)) +
-  geom_pointrange(fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Time period",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
+df<-tidy.spatial_AI %>% filter(Index %in% "NDSI_Bio" & response_group %in% c('Forest_Var','Developed_Var')) 
+df$response_group<-df$response_group %>% as.character() %>% parse_factor(levels = c('Forest_Var','Developed_Var'))
 
-panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_a
-```
-
-Now check for landuse effect:
-
-```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Bio" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
-
-# split out time series for each land use class separately
-temp<-model.matrix(~ 0 + df2$Landuse)*df2$Date_Time
-date_for<-temp[,1]
-date_dev<-temp[,2]
-rm(temp)
-
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df2) # linear model
-
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_for + date_dev, # which variables to break
-                psi = list(date_for=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                  date_dev=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
-
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
-
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_for,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_dev,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of developed sites
-summary(os)
-
-
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
-
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Landuse,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-```
-
-Plot results:
-
-```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+panel_b<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
-                  col = Landuse)) +
+                  col = response_group)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = expression(paste("NDSI"["Bio"]," spatial variability"))) + 
+       y = "Biophony spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
-
-plot2<-Break_results %>% ggplot(aes(x = Landuse,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  col = Landuse,
-                  shape = Period)) +
-  scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Landuse",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_b
 ```
 
 ```{r}
 panel_a / panel_b
 ```
 
-**NDSI_Anthro - no effect**
+*NDSI_Anthro*
 
 ```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Anth" & response_group %in% 'Total_var') # get pre vs post data for comparison
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Anth" & response_group == "Total_var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
 df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Date_Time,data = df2) # linear model
-summary(olm)
-#plot(olm)
+# get predicted breakpoint locations
+psis = c(271, 278)
 
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ Date_Time, # which variables to break
-                psi = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
 
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
 
-## davies test of the change in slope after break points
-davies.test(olm,values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # break after typhoons
-summary(os)
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
 
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
 
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+```
+
+Test for land use effects: 
+
+```{r}
+## Forest sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Anth" & response_group == "Forest_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
+
+## Developed sites ##
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Anth" & response_group == "Developed_Var")
+df2 = df %>%
+  slice(which(row_number() %% 12 == 1)) %>% # subset to every 6 hours (good tradeoff between MCMC speed and data resolution)
+  #mutate(Date_Time = yday(Date_Time)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# get predicted breakpoint locations
+psis = c(271, 278)
+
+# create time series
+tsData <- ts(
+  c(df2$Stability),
+  frequency = 28
+)
+#detrend weekly cycles
+detrended <- stl(tsData, s.window = 28)
+plot(detrended)
+# new data frame with detrended data
+trend = data.frame(Stability = as.numeric(detrended$time.series[,"trend"]), Date_Time = df2$Date_Time + 242.5000)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+
+# Model with one changepoint
+model1 = list(Stability ~ 1, 1~ 1)  # one intercept-only segments
+fit_mcp1 = mcp(model1, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 280))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+# Model with two changepoint
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 275, cp_2 = 290))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+
+# model with 3 breakpoints
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+prior = list(
+  cp_1 = "dunif(260,277)", # uniform priors truncated at specified points
+  cp_2 = "dunif(270,285)",  
+  cp_3 = "dunif(285,300)" 
+)
+fit_mcp3 = mcp(model3, data = trend, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+# model comparison
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
+
+# fit_mcp3 is best - 3 change points
+plot(fit_mcp3) + geom_vline(xintercept = psis)
+
 ```
 
 Plot results:
 
 ```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+df =tidy.spatial_AI %>% filter(Index == "NDSI_Anth" & response_group == "Total_var")
+
+panel_a<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability)) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = expression(paste("NDSI"["Anthro"]," spatial variability"))) + 
+       y = "Anthropophony spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
 
-plot2<-Break_results %>% ggplot(aes(x = Period,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  shape = Period)) +
-  geom_pointrange(fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Time period",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
+df<-tidy.spatial_AI %>% filter(Index %in% "NDSI_Anth" & response_group %in% c('Forest_Var','Developed_Var')) 
+df$response_group<-df$response_group %>% as.character() %>% parse_factor(levels = c('Forest_Var','Developed_Var'))
 
-panel_a<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_a
-```
-
-NB: model slopes differ slightly so Davies test is sig.
-
-Now check for landuse effect:
-
-```{r}
-# prepare data
-df<-tidy.spatial_AI %>%
-  filter(Index %in% "NDSI_Anth" & response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-df2<-df
-df2$Date_Time<-df2$Date_Time %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
-
-# split out time series for each land use class separately
-temp<-model.matrix(~ 0 + df2$Landuse)*df2$Date_Time
-date_for<-temp[,1]
-date_dev<-temp[,2]
-rm(temp)
-
-#hist(df$Stability) # looks Gaussian
-olm<-lm(Stability ~ 0 + Landuse + date_for + date_dev,data = df2) # linear model
-
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_for + date_dev, # which variables to break
-                psi = list(date_for=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric()), # break after typhoons
-                  date_dev=c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(), # break at Trami
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())), # break after typhoons
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
-
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
-
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_for,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_dev,
-            values = c(df$Date_Time[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric(),
-                  df$Date_Time[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - 
-                  df$Date_Time[1] %>% julian.Date() %>% as.numeric())) # test for change in slope of developed sites
-summary(os)
-
-
-# get dates of manual breakpoint
-Psi_1<-df$Date_Time[df$Period %in% 'Trami'][1]
-Psi_2<-df$Date_Time[df$Period %in% 'Post-typhoon'][1]
-
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Landuse,Period) %>% 
-  summarise(Med=median(Stability),
-            Lo_95=quantile(Stability,probs = 0.05),
-            Up_95=quantile(Stability,probs = 0.95))
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-```
-
-Plot results:
-
-```{r}
-plot1<-df %>% ggplot(aes(x = Date_Time,
+panel_b<-df %>% ggplot(aes(x = Date_Time,
                   y = Stability,
-                  col = Landuse)) +
+                  col = response_group)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date_Time[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
   geom_line(show.legend = F) + 
   labs(x = "Time",
-       y = expression(paste("NDSI"["Anthro"]," spatial variability"))) + 
+       y = "Anthropophony spatial variability") + 
   theme_cowplot(12) + 
   ylim(c(df$Stability %>% min(),
          df$Stability %>% max())) 
-
-plot2<-Break_results %>% ggplot(aes(x = Landuse,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  col = Landuse,
-                  shape = Period)) +
-  scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = "Landuse",
-       y = element_blank()) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_b
 ```
 
 ```{r}
 panel_a / panel_b
 ```
-
-NB: model slopes differ slightly so Davies test is sig.
-
-NB: this is very reassuring - that what we're seeing in the spatial variability results is biotic and independent of background noise. If results weren't driven by site differences in biotic responses, we'd see them follow closely the overall trend like for Anthropophony.
 
 ### Bird detections
 
@@ -1746,7 +1952,7 @@ plot_grid(corvusplot, horornisplot, otusplot,
 
 Make Bayesian change-point model per species and habitat combination. For each one, compare zero change points (no typhoon effect), 2 breaks (approx. typhoon effects, weak priors), and 3rd change point (following acoustic index results).
 
-## Total spatial variability 
+Total spatial variability:
 
 ```{r}
 ### Corvus macrorhynchos - No change points
@@ -1927,15 +2133,15 @@ df<-tidy.spatial_bird %>% filter(response_group == "Total_Var")
 Sp_labs<-c('C. macrorhynchos','H. diphone','O. elegans')
 names(Sp_labs)<-c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans')
 
-df %>% ggplot(aes(x = Date,
+panel_a<-df %>% ggplot(aes(x = Date,
                   y = Stability,
                   col = Species)) +
-  scale_alpha_manual(values = c(1,0.6,0.3)) +
+#  scale_alpha_manual(values = c(1,0.6,0.3)) +
   scale_linetype_manual(values = c(1,2,4)) +
   scale_colour_manual(values = c("gray80","skyblue","navajowhite")) +
   geom_vline(xintercept = df$Date[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(show.legend = F) + 
+  geom_line(show.legend = F, alpha = 0.8) + 
   labs(x = "Time",
        y = "Species detection spatial variability") + 
   theme_cowplot(12) + 
@@ -1943,9 +2149,9 @@ df %>% ggplot(aes(x = Date,
          df$Stability %>% max())) 
 ```
 
-Now check for landuse effect:
+Now check for landuse effect.
 
-## Forest spatial variability 
+Forest spatial variability:
 
 ```{r}
 ### Corvus macrorhynchos - 1 change point
@@ -2004,7 +2210,6 @@ loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 plot(fit_mcp1) + geom_vline(xintercept = psis)
 
-
 ### Horornis diphone - One change point
 df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Forest_Var")
 df<-df[complete.cases(df),]
@@ -2060,12 +2265,11 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 best - one change point
 
-plot(fit_mcp2) + geom_vline(xintercept = psis)
+plot(fit_mcp1) + geom_vline(xintercept = psis)
 
 
-### Otus elegans - One change point
+### Otus elegans - No change
 df =tidy.spatial_bird %>% filter(Species == "Otus_elegans" & response_group == "Forest_Var")
-df<-df[complete.cases(df),]
 
 df2 = df %>%
   mutate(Date_Time = yday(Date)) %>%
@@ -2122,99 +2326,141 @@ plot(fit_mcp0) + geom_vline(xintercept = psis)
 
 ```
 
-
-
-
-
-
-
-
+Developed sites spatial variability:
 
 ```{r}
-# prepare data
-df<-tidy.spatial_bird %>%
-  filter(response_group %in% c('Forest_Var','Developed_Var')) # get pre vs post data for comparison
-df$response_group[df$response_group %in% 'Forest_Var']<-'Forest'
-df$response_group[df$response_group %in% 'Developed_Var']<-'Developed'
-colnames(df)[4]<-'Landuse'
-df$Landuse<-df$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed')) # change levels for model
-df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Forest']<-df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Developed'] # fix error in forest owl data (showing up as developed for some reason)
-df$Stability[df$Species %in% 'Otus_elegans' & df$Landuse %in% 'Developed']<-NA # fix error in forest owl data
-df2<-df
-df2$Date<-df2$Date %>%  julian.Date() %>% as.numeric() # convert to numeric date format for model
-df2$Date<-df2$Date - min(df2$Date) # scale date to start at zero for model
+### Corvus macrorhynchos - 1 change point
+df =tidy.spatial_bird %>% filter(Species == "Corvus_macrorhynchos" & response_group == "Developed_Var")
 
-# split out time series for each species class separately
-temp<-model.matrix(~ 0 + df2$Species * df2$Landuse)*df2$Date
-date_Corv_for<-temp[,1]
-date_Horo_for<-temp[,2]
-date_Otus_for<-temp[,3]
-date_Corv_dev<-temp[,4]
-date_Horo_dev<-temp[,5]
-rm(temp)
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
 
-#hist(df$Stability) # looks lognormal
-olm<-glm(Stability ~ 0 + Species + Landuse + date_Corv_for + date_Horo_for + date_Otus_for + date_Corv_dev + date_Horo_dev,
-         data = df2,family = gaussian(link = 'log')) # linear model
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
 
-summary(olm)
-#plot(olm)
+# set approx. break points at typhoon levels
+psis = c(30, 37)
 
-# get break points
-Psi_1<-df$Date[df$Period %in% 'Trami'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
-Psi_2<-df$Date[df$Period %in% 'Post-typhoon'][1] %>%  julian.Date() %>% as.numeric() - df$Date[1] %>% julian.Date() %>% as.numeric()
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
 
-## break-point model ##
-os <- segmented(olm, 
-                seg.Z = ~ date_Corv_for + date_Horo_for + date_Otus_for + date_Corv_dev + date_Horo_dev, # which variables to break
-                psi = list(date_Corv_for=c(Psi_1,Psi_2),
-                           date_Horo_for=c(Psi_1,Psi_2),
-                           date_Otus_for=c(Psi_1,Psi_2),
-                           date_Corv_dev=c(Psi_1,Psi_2),
-                           date_Horo_dev=c(Psi_1,Psi_2)),
-                control = seg.control(it.max = 0)) # it.max = 0 prevents bootstrap procedure (i.e. forces manual break-point)
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
 
-AIC(os,olm) # break point model performs better
-lmtest::lrtest(os,olm) # break point model performs better
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
 
-## davies test of the change in slope after break points
-davies.test(olm,seg.Z = ~ date_Corv_for,
-            values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_Horo_for,
-            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-davies.test(olm,seg.Z = ~ date_Otus_for,
-            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-davies.test(olm,seg.Z = ~ date_Corv_dev,
-            values = c(Psi_1,Psi_2)) # test for change in slope of forest sites
-davies.test(olm,seg.Z = ~ date_Horo_dev,
-            values = c(Psi_1,Psi_2)) # test for change in slope of developed sites
-summary(os)
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
 
-# compare pre- and post-break acoustic index values
-Break_results<-df %>% 
-  filter(Period %in% c('Pre-typhoon','Post-typhoon')) %>% 
-  group_by(Species,Landuse,Period) %>% 
-  summarise(Med=median(Stability,na.rm = T),
-            Lo_95=quantile(Stability,probs = 0.05,na.rm = T),
-            Up_95=quantile(Stability,probs = 0.95,na.rm = T))
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
 
-Break_results$Period<-Break_results$Period %>% as.character() %>% parse_factor(levels = c('Pre-typhoon','Post-typhoon'))
-Break_results$Landuse<-Break_results$Landuse %>% as.character() %>% parse_factor(levels = c('Forest','Developed'))
-Break_results$Species<-Break_results$Species %>% as.character() %>% parse_factor(levels = c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans'))
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp1 most parsimonious - 1 change point
+
+plot(fit_mcp1) + geom_vline(xintercept = psis)
+
+### Horornis diphone - One change point
+df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Developed_Var")
+df<-df[complete.cases(df),]
+
+df2 = df %>%
+  mutate(Date_Time = yday(Date)) %>%
+  group_by(Date_Time) %>%
+  summarize(Stability = mean(Stability))
+
+df2$Date_Time<-df2$Date_Time %>% as.Date() %>%  julian(origin = as.POSIXct("2018-01-01")) %>% as.numeric() # convert to numeric date format for model
+df2$Date_Time<-df2$Date_Time - min(df2$Date_Time) # scale date to start at zero for model
+
+# set approx. break points at typhoon levels
+psis = c(30, 37)
+
+# Intercept-only model (no cp)
+model0 = list(Stability ~ 1)
+fit_mcp0 = mcp(model0, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000)
+#plot(fit_mcp0)
+
+model1 = list(Stability ~ 1, 1~ 1)  # two intercept-only segments
+fit_mcp1 = mcp(model1, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 35))  
+#plot(fit_mcp1) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp1, pars = c("cp_1", "cp_2"))
+
+model2 = list(Stability ~ 1, 1~ 1, 1~1)  # two intercept-only segments
+fit_mcp2 = mcp(model2, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               inits = list(cp_1 = 30, cp_2 = 37))  
+#plot(fit_mcp2) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp2, pars = c("cp_1", "cp_2"))
+
+prior = list(
+  cp_1 = "dnorm(30,5)", 
+  cp_2 = "dnorm(35,5)",  
+  cp_3 = "dnorm(42,5)" 
+)
+
+model3 = list(Stability ~ 1, 1~ 1, 1~1, 1~1)  # three intercept-only segments
+fit_mcp3 = mcp(model3, data = df2, par_x = "Date_Time", 
+               chains=8, cores = 8, adapt = 10000, 
+               prior = prior)
+#plot(fit_mcp3) + geom_vline(xintercept = psis)
+#plot_pars(fit_mcp3, pars = c("cp_1", "cp_2", "cp_3"))
+
+fit_mcp0$loo = loo(fit_mcp0)
+fit_mcp1$loo = loo(fit_mcp1)
+fit_mcp2$loo = loo(fit_mcp2)
+fit_mcp3$loo = loo(fit_mcp3)
+loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
+# mcp1 best - one change point
+
+plot(fit_mcp1) + geom_vline(xintercept = psis)
 ```
+
 
 Plot results:
 
 ```{r}
-plot1<-df %>% ggplot(aes(x = Date,
+df<-tidy.spatial_bird %>% filter(response_group == c("Forest_Var","Developed_Var"))
+Sp_labs<-c('C. macrorhynchos','H. diphone','O. elegans')
+names(Sp_labs)<-c('Corvus_macrorhynchos','Horornis_diphone','Otus_elegans')
+df$response_group<-df$response_group %>% as.character() %>% parse_factor(levels = c('Forest_Var','Developed_Var'))
+
+panel_b<-df %>% ggplot(aes(x = Date,
                   y = Stability,
-                  alpha = Species,
-                  col = Landuse)) +
+#                  alpha = Species,
+                  col = response_group)) +
   scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  scale_alpha_manual(values = c(1,0.6,0.3)) +
+#  scale_alpha_manual(values = c(1,0.6,0.3)) +
   geom_vline(xintercept = df$Date[df$Period %in% 'Trami'][1],lty = 2) + 
   geom_vline(xintercept = df$Date[df$Period %in% 'Post-typhoon'][1],lty = 2) + 
-  geom_line(show.legend = F) + 
+  geom_line(show.legend = F, alpha = 0.8) + 
   labs(x = "Time",
        y = "Species detection spatial variability") + 
   theme_cowplot(12) + 
@@ -2224,36 +2470,13 @@ plot1<-df %>% ggplot(aes(x = Date,
   facet_grid(Species ~ .,
              labeller = labeller(Species = Sp_labs))
 
-plot2<-Break_results %>% ggplot(aes(x = Species,
-                  y = Med,
-                  ymin = Lo_95,
-                  ymax = Up_95,
-                  alpha = Species,
-                  col = Landuse,
-                  shape = Period)) +
-  scale_alpha_manual(values = c(1,0.6,0.3)) +
-  scale_colour_manual(values = c("#29a62b","#a629a4")) +
-  geom_pointrange(position = position_jitterdodge(),
-                  fatten = 5,
-                  show.legend = F) + 
-  labs(x = 'Species',
-       y = element_blank()) + 
-  scale_x_discrete(labels = Sp_labs) + 
-  theme_cowplot(12) + 
-  ylim(c(df$Stability %>% min(),
-         df$Stability %>% max()))
-
-panel_b<-plot1 + plot2 + plot_layout(widths = c(3,1))
-panel_b
 ```
 
 ```{r}
-panel_a / panel_b
+panel_a/panel_b
 ```
 
-\*\* Do SAME BUT FOR DIFFERENT TIME HORIZONS BEFORE AND AFTER TYPHOONS - TO SHOW RESULTS DON'T DEPEND ON TIME BEFORE/AFTER TYPHOONS
-
-### Figure S2
+### Legacy Figure S2
 
 Finally, compare different automatic filtering thresholds for species detection confidence. Test the mean species effect on Horonis_diphone under three confidence thresholds. NB: to speed this up, we'll run 10x fewer iterations in the models. 
 
