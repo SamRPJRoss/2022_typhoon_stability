@@ -821,7 +821,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelA<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI Spatial variability (all sites)") + theme_cowplot()
 
 ```
 
@@ -897,8 +897,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
-
+PanelB<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI Spatial variability (Forest sites)") + theme_cowplot()
 
 ## Developed sites ##
 df =tidy.spatial_AI %>% filter(Index == "NDSI" & response_group == "Developed_Var")
@@ -968,7 +967,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelC<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI Spatial variability (Developed sites)") + theme_cowplot()
 
 ```
 
@@ -1079,7 +1078,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelD<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Bio Spatial variability (All sites)") + theme_cowplot()
 
 ```
 
@@ -1155,7 +1154,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelE<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Bio Spatial variability (Forest sites)") + theme_cowplot()
 
 
 ## Developed sites ##
@@ -1226,7 +1225,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelF<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Bio Spatial variability (Developed sites)") + theme_cowplot()
 
 ```
 
@@ -1337,7 +1336,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelG<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Anthro Spatial variability (All sites)") + theme_cowplot()
 
 ```
 
@@ -1411,7 +1410,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelH<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Anthro Spatial variability (Forest sites)") + theme_cowplot()
 
 
 ## Developed sites ##
@@ -1482,7 +1481,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
 # fit_mcp3 is best - 3 change points
-plot(fit_mcp3) + geom_vline(xintercept = psis)
+PanelI<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Anthro Spatial variability (Developed sites)") + theme_cowplot()
 
 ```
 
@@ -1521,6 +1520,14 @@ panel_b<-df %>% ggplot(aes(x = Date_Time,
 
 ```{r}
 panel_a / panel_b
+```
+
+Plot change-point multi-panel figure: 
+
+```{r}
+
+(PanelA + PanelB + PanelC) / (PanelD + PanelE + PanelF) / (PanelG + PanelH + PanelI)
+
 ```
 
 ### Bird detections
@@ -2009,7 +2016,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp0 best - no change points
 
-plot(fit_mcp0) + geom_vline(xintercept = psis)
+PanelA<-plot(fit_mcp0) + geom_vline(xintercept = psis) + xlab("Time") + ylab("C. macrorhynchos detection spatial variability (All sites)") + theme_cowplot()
 
 
 ### Horornis diphone - One change point
@@ -2066,7 +2073,8 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 best - one change point
 
-plot(fit_mcp1) + geom_vline(xintercept = psis)
+PanelD<-plot(fit_mcp1) + geom_vline(xintercept = psis) + xlab("Time") + ylab("H. diphone detection spatial variability (All sites)") + theme_cowplot()
+
 
 ### Otus elegans - One change point
 df =tidy.spatial_bird %>% filter(Species == "Otus_elegans" & response_group == "Total_Var")
@@ -2122,7 +2130,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp0 best - no change point
 
-plot(fit_mcp0) + geom_vline(xintercept = psis)
+PanelG<-plot(fit_mcp0) + geom_vline(xintercept = psis) + xlab("Time") + ylab("O. elegans detection spatial variability (All sites)") + theme_cowplot()
 
 ```
 
@@ -2208,7 +2216,8 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 most parsimonious - 1 change point
 
-plot(fit_mcp1) + geom_vline(xintercept = psis)
+PanelB<-plot(fit_mcp1) + geom_vline(xintercept = psis) + xlab("Time") + ylab("C. macrorhynchos detection spatial variability (Forest sites)") + theme_cowplot()
+
 
 ### Horornis diphone - One change point
 df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Forest_Var")
@@ -2265,7 +2274,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 best - one change point
 
-plot(fit_mcp1) + geom_vline(xintercept = psis)
+PanelE<-plot(fit_mcp1) + geom_vline(xintercept = psis) + xlab("Time") + ylab("H. diphone detection spatial variability (Forest sites)") + theme_cowplot()
 
 
 ### Otus elegans - No change
@@ -2322,7 +2331,7 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp0 best - no change point
 
-plot(fit_mcp0) + geom_vline(xintercept = psis)
+PanelH<-plot(fit_mcp0) + geom_vline(xintercept = psis) + xlab("Time") + ylab("O. elegans detection spatial variability (Forest sites)") + theme_cowplot()
 
 ```
 
@@ -2383,7 +2392,8 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 most parsimonious - 1 change point
 
-plot(fit_mcp1) + geom_vline(xintercept = psis)
+PanelC<-plot(fit_mcp1) + geom_vline(xintercept = psis) + xlab("Time") + ylab("C. macrorhynchos detection spatial variability (Developed sites)") + theme_cowplot()
+
 
 ### Horornis diphone - One change point
 df =tidy.spatial_bird %>% filter(Species == "Horornis_diphone" & response_group == "Developed_Var")
@@ -2440,7 +2450,8 @@ fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo) 
 # mcp1 best - one change point
 
-plot(fit_mcp1) + geom_vline(xintercept = psis)
+PanelF<-plot(fit_mcp1) + geom_vline(xintercept = psis) + xlab("Time") + ylab("H. diphone detection spatial variability (Developed sites)") + theme_cowplot()
+
 ```
 
 
@@ -2474,6 +2485,14 @@ panel_b<-df %>% ggplot(aes(x = Date,
 
 ```{r}
 panel_a/panel_b
+```
+
+Changepoint model multi-panel figure: 
+
+```{r}
+
+(PanelA + PanelB + PanelC) / (PanelD + PanelE + PanelF) / (PanelG + PanelH + plot_spacer())
+
 ```
 
 ### Legacy Figure S2
