@@ -84,8 +84,8 @@ fviz_nbclust(Landuse_transform, kmeans, method = 'silhouette') # K = 2
 k = 2
 kmean_landuse <- kmeans(Landuse_transform, centers = k, nstart = 50)
 PCA_out$group<-kmean_landuse$cluster
-PCA_out$group[PCA_out$group %in% '1']<-'Forest'
-PCA_out$group[PCA_out$group %in% '2']<-'Developed'
+PCA_out$group[PCA_out$group %in% '1']<-'Developed'
+PCA_out$group[PCA_out$group %in% '2']<-'Forest'
 PCA_out$group<-parse_factor(as.character(PCA_out$group))
 ggbiplot(PCA_out,alpha = 0.25,varname.size = 4,varname.adjust = 1.2,groups = PCA_out$group,ellipse = T) +
   theme_light() + 
