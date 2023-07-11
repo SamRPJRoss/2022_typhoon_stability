@@ -1153,7 +1153,7 @@ fit_mcp2$loo = loo(fit_mcp2)
 fit_mcp3$loo = loo(fit_mcp3)
 loo::loo_compare(fit_mcp0$loo, fit_mcp1$loo, fit_mcp2$loo, fit_mcp3$loo)
 
-# fit_mcp3 is best - 3 change points
+# fit_mcp3 is best - 2 change points
 PanelE<-plot(fit_mcp3) + geom_vline(xintercept = psis) + xlab("Time") + ylab("NDSI_Bio Spatial variability (Forest sites)") + theme_cowplot()
 
 
